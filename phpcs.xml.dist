@@ -2,9 +2,10 @@
 <ruleset name="php-imap-mcp">
     <description>PSR-12 with declare(strict_types=1) required</description>
 
-    <!-- Add public/ and bin/ here when they are created (M1, M2) -->
+    <!-- Add bin/ here when it is created (M2) -->
     <file>src</file>
     <file>tests</file>
+    <file>public</file>
 
     <arg name="extensions" value="php"/>
     <arg name="colors"/>

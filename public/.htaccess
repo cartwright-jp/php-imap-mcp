@@ -1,0 +1,25 @@
+# php-imap-mcp: only index.php is served from this directory (SPEC.md 4, 7).
+
+Options -Indexes
+DirectoryIndex index.php
+
+# Pass the Authorization header to PHP (XServer may drop it otherwise).
+SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+# Deny everything except index.php.
+<FilesMatch ".*">
+    Require all denied
+</FilesMatch>
+<FilesMatch "^(index\.php)?$">
+    Require all granted
+</FilesMatch>
+
+# IP restriction (M2): allow only Anthropic's outbound ranges and your own IP.
+# <RequireAny>
+#     Require ip 203.0.113.0/24
+# </RequireAny>
