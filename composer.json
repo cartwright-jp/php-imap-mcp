@@ -1,0 +1,63 @@
+{
+    "name": "cartwright-jp/php-imap-mcp",
+    "description": "Remote MCP server in PHP for reading, searching and drafting IMAP mail on shared hosting such as XServer",
+    "type": "project",
+    "license": "proprietary",
+    "keywords": ["mcp", "imap", "xserver", "shared-hosting", "claude"],
+    "authors": [
+        {
+            "name": "Kazuki Aruga (Cartwright)"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "ext-iconv": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-openssl": "*"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.3",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^10.5",
+        "squizlabs/php_codesniffer": "^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Cartwright\\ImapMcp\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Cartwright\\ImapMcp\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "8.1.0"
+        },
+        "sort-packages": true,
+        "optimize-autoloader": true
+    },
+    "scripts": {
+        "test": "phpunit --testsuite unit",
+        "test:integration": "phpunit --testsuite integration",
+        "stan": "phpstan analyse --memory-limit=1G",
+        "cs": "phpcs",
+        "cs:fix": "phpcbf",
+        "check": [
+            "@cs",
+            "@stan",
+            "@test"
+        ]
+    },
+    "scripts-descriptions": {
+        "test": "Run unit tests",
+        "test:integration": "Run integration tests against the test mail server (docker compose up -d)",
+        "stan": "Run PHPStan (level 8)",
+        "cs": "Check coding style (PSR-12)",
+        "cs:fix": "Fix coding style automatically",
+        "check": "Run cs, stan and unit tests"
+    }
+}
