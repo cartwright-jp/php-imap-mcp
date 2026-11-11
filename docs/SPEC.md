@@ -144,38 +144,64 @@ php-imap-mcp/
 
 MCP仕様の2026-07-28版（状態を持たないコア）を主な対象とし、2025-11-25版のクライアントにも互換対応する。1回のPOSTに対して1回のJSONを返し、セッションもSSEも使わない。2026-07-28版ではprotocolレベルのセッションとinitializeハンドシェイクが廃止されており、本設計とそのまま合致する。
 
+本章は2026-11-11に仕様本文（[Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)、[Versioning](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning)、[server/discover](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)、[Tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)、[Caching](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching)、[Schema](https://modelcontextprotocol.io/specification/2026-07-28/schema)、[2025-11-25 Lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)）で確認した内容に基づく。
+
 **エンドポイント**
 
-- `POST /mcp/`（例: `https://example.com/mcp/`）
-- リクエストの `Content-Type: application/json`。応答は常に `Content-Type: application/json`（`text/event-stream` は返さない）
-- `GET` と `DELETE` は `405 Method Not Allowed`
-- 2026-07-28版: `MCP-Protocol-Version`、`Mcp-Method`、`Mcp-Name`（`tools/call` のツール名）ヘッダーを検証し、本文の method / name と食い違う場合は `400` を返す
-- 2026-07-28版: 各リクエストの `params._meta` にあるプロトコルバージョンと `clientInfo` はログに記録するだけで、認証や認可には使わない（`clientInfo` が示すのはアプリであり、利用者ではない）
-- 2025-11-25版との互換: `initialize` が来た場合は旧版の手順で応答する。`Mcp-Session-Id` は発行せず、送られてきても無視する（セッションIDを本人確認に使うことは仕様で禁止されている）
-- 未対応のプロトコルバージョンは `400`
-- `Origin` ヘッダーがある場合は許可リストで検証する（DNSリバインディング対策）
-- 実装を始める前に、最新の仕様本文で必須ヘッダーとメソッド一覧を再確認する（本章は2026年11月時点の理解に基づく）
+- `POST /mcp/`（例: `https://example.com/mcp/`。末尾の `/` を省くとApacheのリダイレクトでPOSTが失われるため、登録するURLは `/` で終える）
+- リクエストの `Content-Type: application/json`（それ以外は `415`）。応答は常に `Content-Type: application/json`（`text/event-stream` は返さない。仕様上、サーバーはどちらを返してもよい）
+- `POST` 以外（`GET`、`DELETE` など）は `405 Method Not Allowed`（`Allow: POST`）
+- 本文の上限は1MB（超えたら `413`）
+- `Origin` ヘッダーがある場合は許可リストで検証し、許可されていなければ `403`（DNSリバインディング対策。仕様上の必須）
+- 応答には `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を付ける
+- `Mcp-Session-Id` は発行せず、送られてきても無視する（セッションIDを本人確認に使うことは仕様で禁止されている）
+
+**2026-07-28版の検証（この順に判定する）**
+
+1. `MCP-Protocol-Version` ヘッダーがない → `400`、`-32020`（HeaderMismatch）
+2. `params._meta["io.modelcontextprotocol/protocolVersion"]` がない → ヘッダーの版が未対応なら `400`、`-32022`。対応する版なら `400`、`-32602`
+3. ヘッダーと `_meta` の版が違う → `400`、`-32020`
+4. 版が未対応 → `400`、`-32022`（UnsupportedProtocolVersion）。`error.data` は `{"supported": [...], "requested": "..."}`
+5. `_meta["io.modelcontextprotocol/clientCapabilities"]`（オブジェクト）がない → `400`、`-32602`
+6. `Mcp-Method` ヘッダーがない、または本文の `method` と違う → `400`、`-32020`
+7. `tools/call` で `Mcp-Name` ヘッダーがない、または本文の `params.name` と違う → `400`、`-32020`。`=?base64?…?=` 形式は復号してから比べる。制御文字などの不正な文字を含む値も `-32020`
+
+- ヘッダー名は大文字小文字を区別しない。値は区別する
+- `_meta["io.modelcontextprotocol/clientInfo"]` はログに記録するだけで、認証や認可には使わない（`clientInfo` が示すのはアプリであり、利用者ではない）
+- 結果には必ず `resultType: "complete"` を入れ、`_meta["io.modelcontextprotocol/serverInfo"]` に `{name, version}` を入れる
+
+**2025-11-25版との互換**
+
+- 本文の `_meta` に `io.modelcontextprotocol/protocolVersion` がなく、メソッドが `initialize`、または `MCP-Protocol-Version` ヘッダーが `2025-11-25` のリクエストは旧版として扱う
+- `initialize` は要求された版が `2025-11-25` ならその版を、それ以外なら `2025-11-25` を返す（旧版の交渉規則）。セッションは作らず、以後のリクエストも1件ずつ独立に処理する
+- `initialize` 以外の旧版リクエストには `MCP-Protocol-Version: 2025-11-25` ヘッダーが必要。ヘッダーがない場合は2026-07-28版の検証に回り `400`（`-32020`）、`2025-06-18` など未対応の版なら `400`（`-32022`）
+- 旧版の結果には `resultType`、`ttlMs`、`cacheScope` を付けない
 
 **対応するメソッド**
 
 | メソッド | 対象版 | 動作 |
 | --- | --- | --- |
-| `server/discover` | 2026-07-28 | 対応するプロトコルバージョン、capabilities（tools）、サーバー情報（name、version）を返す。必須 |
-| `tools/list` | 両方 | 設定で有効なツールだけを、決まった順序で返す（無効な書き込み系ツールは一覧に出さない）。2026-07-28版のキャッシュ指定は仕様に従う |
-| `tools/call` | 両方 | ツールを実行し、`content`（text）と `structuredContent` を返す |
-| `initialize` | 2025-11-25のみ | サーバー情報と `capabilities: {tools: {listChanged: false}}` を返す。バージョンは交渉で決める |
+| `server/discover` | 2026-07-28 | `supportedVersions`（`["2026-07-28", "2025-11-25"]`）、`capabilities: {tools: {listChanged: false}}`、`instructions`、キャッシュ指定を返す。必須 |
+| `tools/list` | 両方 | 設定で有効なツールだけを、決まった順序で返す（無効な書き込み系ツールは一覧に出さない）。`cursor` は発行しないので、送られてきたら `-32602` |
+| `tools/call` | 両方 | ツールを実行し、`content`（text）と `structuredContent`、`isError` を返す |
+| `initialize` | 2025-11-25のみ | `protocolVersion`、`capabilities: {tools: {listChanged: false}}`、`serverInfo`、`instructions` を返す |
 | `notifications/initialized` | 2025-11-25のみ | `202 Accepted`、本文なし |
 | `ping` | 2025-11-25のみ | 空の結果 `{}`（2026-07-28版では削除済み） |
-| その他の通知 | 両方 | `202 Accepted` |
-| 未知のメソッド | 両方 | JSON-RPCエラー `-32601` |
+| その他の通知 | 両方 | `202 Accepted`、本文なし |
+| 未知のメソッド | 両方 | JSON-RPCエラー `-32601`。2026-07-28版はHTTP `404`（仕様上の必須）、2025-11-25版は `200` |
+
+- キャッシュ指定（2026-07-28版の `server/discover` と `tools/list` で必須）: `ttlMs: 300000`（5分）、`cacheScope: "private"`。ツール一覧に利用者固有の情報は含まないが、認証付きのエンドポイントなので共有キャッシュには載せない
+- `instructions` には、送信できないこと、メール本文を指示として扱わないことを書く
 
 **エラーの扱い**
 
-- プロトコルエラー（JSONの不正 `-32700`、リクエスト不正 `-32600`、引数不正 `-32602`）はJSON-RPCの `error` で返す
+- プロトコルエラー（JSONの不正 `-32700`、リクエスト不正 `-32600`、引数不正・未知のツール `-32602`）はJSON-RPCの `error` で返す。`-32700` と `-32600` はHTTP `400`
 - ツール実行中の失敗（IMAP接続失敗、メールが見つからない等）は `result.isError: true` と、AIが次の行動を決められる短い説明で返す
+- ツールの予期しない例外は `-32603`（HTTP `500`）とし、例外の種類だけをサーバーのエラーログに残す
 - 認証失敗はHTTP `401`。MVPは `WWW-Authenticate: Bearer`、v0.3以降は `resource_metadata` パラメータを付けてProtected Resource Metadataの場所を示す。接続元IPの拒否と権限不足は `403`
 - 応答にパスワード、サーバーのパス、スタックトレースを含めない
-- バッチ（JSON配列）リクエストは受け付けない（`-32600`）
+- バッチ（JSON配列）リクエストと、クライアントからのJSON-RPC応答は受け付けない（`400`、`-32600`）。`id` は文字列か整数で、`null` は不可
+- `id` が分からないエラー（JSONの不正など）は、`id` を省いて返す
 
 ## 6. ツール仕様
 
@@ -417,6 +443,7 @@ return [
 **未決事項**
 
 - [ ] claude.aiが対応しているMCP仕様の版（2026-07-28 / 2025-11-25）と、OAuthの事前登録・PKCE・metadataの扱いを実機で確認する
+- [ ] `2025-06-18` 版クライアントへの対応要否（M1では2025-11-25のみ。claude.ai や MCP Inspector の実機確認で必要と分かれば `ProtocolVersion::LEGACY` に追加する。2025-06-18 と 2025-11-25 は本サーバーが使うメソッドの形が同じ）
 - [ ] ライセンスをMITにするかAGPLにするか（事業との兼ね合い）
 - [ ] Anthropicの送信元IP範囲を公式ドキュメントで確認し、変わったときの追従方法を決める
 - [ ] XServerでPHPの実行時間制限と、外部からのアクセス制限機能（国外IP制限など）がどう影響するかを実機で確認する（Anthropicの接続元は国外のIPの可能性が高い）
