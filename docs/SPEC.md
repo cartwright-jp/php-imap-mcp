@@ -423,4 +423,5 @@ return [
 - [ ] v0.3のOAuthを自前で実装するか、`league/oauth2-server` などを使うか
 - [ ] 公式PHP SDK（`mcp/sdk`）に移行する時期の判断基準
 - [x] プロダクト名の確定: `php-imap-mcp` に決定（IMAP専用のため）。パッケージ名は `cartwright-jp/php-imap-mcp`（2026-11-11 時点で Packagist・GitHub ともに同名なし、`cartwright-jp` も未使用）
-- [ ] GitHub Organization `cartwright-jp` を作成する。Packagist のベンダー名は最初のパッケージ登録で確保されるため、公開時に早めに登録する
+- [x] GitHub Organization `cartwright-jp` を作成する（2026-11-11 作成済み）
+- [ ] Packagist のベンダー名 `cartwright-jp` を確保する。最初のパッケージ登録で確保されるため、公開時に早めに登録する
