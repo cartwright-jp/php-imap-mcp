@@ -1,0 +1,18 @@
+# Composer
+/vendor/
+
+# Real configuration and runtime data (never commit: contains credentials, logs)
+/config.php
+/var/
+
+# Tool caches
+/.phpunit.cache/
+/.phpcs-cache
+/phpunit.xml
+/phpstan.neon
+/phpcs.xml
+
+# Editors / OS
+.idea/
+.DS_Store
+Thumbs.db
