@@ -18,7 +18,14 @@ XServerなどの共用レンタルサーバーに置くだけで、Claudeなど�
 2. メールデータとパスワードを、メールサーバーと同じホストの外に出さない。
 3. AIに渡す権限を最小にし、安全な初期設定のOSSとして公開する。
 
-**プロダクト名**: `php-imap-mcp`
+**プロダクト名と公開先**
+
+| 項目 | 名前 |
+| --- | --- |
+| プロダクト名 | `php-imap-mcp` |
+| GitHub | Organization `cartwright-jp`（屋号 Cartwright、オーナーは個人アカウント `kazuki-aruga`）の `cartwright-jp/php-imap-mcp` |
+| Composer パッケージ名 | `cartwright-jp/php-imap-mcp`（Packagist のベンダー名を GitHub の Organization 名と揃える） |
+| PHP 名前空間 | `Cartwright\ImapMcp` |
 
 ## 2. スコープ
 
@@ -354,6 +361,7 @@ return [
 **OSS運営**
 
 - ライセンス: MITを第一候補とする（未決。「12. 未決事項」を参照）
+- 著作権者の表記: Cartwright は個人事業の屋号のため、個人名を併記する（例: `Copyright (c) 2026 Kazuki Aruga (Cartwright)`）
 - 用意する文書: README（日本語・英語）、SECURITY.md（脆弱性の報告窓口、対応方針）、CHANGELOG、CONTRIBUTING
 - READMEに必ず書くこと: メールへの全権限を持つソフトであること、プロンプトインジェクションのリスク、推奨する構成（専用アカウントと下書き運用）
 - バージョン管理: SemVer。設定ファイルの互換性を壊す変更はメジャーバージョンを上げる
@@ -414,4 +422,5 @@ return [
 - [ ] XServerでPHPの実行時間制限と、外部からのアクセス制限機能（国外IP制限など）がどう影響するかを実機で確認する（Anthropicの接続元は国外のIPの可能性が高い）
 - [ ] v0.3のOAuthを自前で実装するか、`league/oauth2-server` などを使うか
 - [ ] 公式PHP SDK（`mcp/sdk`）に移行する時期の判断基準
-- [x] プロダクト名の確定: `php-imap-mcp` に決定（IMAP専用のため）。Packagistで名前が使えるかは公開前に確認する
+- [x] プロダクト名の確定: `php-imap-mcp` に決定（IMAP専用のため）。パッケージ名は `cartwright-jp/php-imap-mcp`（2026-11-11 時点で Packagist・GitHub ともに同名なし、`cartwright-jp` も未使用）
+- [ ] GitHub Organization `cartwright-jp` を作成する。Packagist のベンダー名は最初のパッケージ登録で確保されるため、公開時に早めに登録する
