@@ -16,10 +16,10 @@ SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
     Require all denied
 </FilesMatch>
 <FilesMatch "^(index\.php)?$">
+    # Without IP restriction:
     Require all granted
+    # With IP restriction (recommended): replace the line above with the ranges you allow, for example
+    # Anthropic's published outbound ranges and your own IP. PHP checks auth.allowed_ips as well.
+    # Require ip 203.0.113.0/24
+    # Require ip 198.51.100.7
 </FilesMatch>
-
-# IP restriction (M2): allow only Anthropic's outbound ranges and your own IP.
-# <RequireAny>
-#     Require ip 203.0.113.0/24
-# </RequireAny>

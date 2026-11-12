@@ -1,20 +1,31 @@
 #!/usr/bin/env bash
 # End-to-end smoke test of the MCP endpoint with curl (SPEC.md 11).
-# Usage: bash tests/e2e/smoke.sh [URL]   (default: http://127.0.0.1:18080/, see composer serve)
-# Extra curl options (e.g. an Authorization header from M2 on) can be passed in E2E_CURL_OPTS.
+# Usage: MCP_TOKEN=... bash tests/e2e/smoke.sh [URL]   (default: http://127.0.0.1:18080/, see composer serve)
+# MCP_TOKEN is the server's Bearer token; tests/e2e/make-config.php creates a throwaway config with one.
+# Extra curl options can be passed in E2E_CURL_OPTS.
 set -u
 url="${1:-http://127.0.0.1:18080/}"
+if [[ -z "${MCP_TOKEN:-}" ]]; then
+  echo 'MCP_TOKEN is not set (see tests/e2e/make-config.php)' >&2
+  exit 2
+fi
 read -r -a extra <<< "${E2E_CURL_OPTS:-}"
+auth=(-H "Authorization: Bearer $MCP_TOKEN")
 modern='2026-07-28'
 meta='"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"smoke","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}'
 failures=0
 
-# check NAME EXPECTED_STATUS EXPECTED_BODY_SUBSTRING curl-args...
-check() {
-  local name="$1" status="$2" needle="$3"
-  shift 3
+# check NAME EXPECTED_STATUS EXPECTED_BODY_SUBSTRING curl-args...   (sends the token)
+# check_noauth ...                                                   (same, without the token)
+check() { run_check 1 "$@"; }
+check_noauth() { run_check 0 "$@"; }
+run_check() {
+  local with_auth="$1" name="$2" status="$3" needle="$4"
+  shift 4
   local out code body
-  out="$(curl -sS -w $'\n%{http_code}' "${extra[@]}" "$@" "$url")" || { echo "FAIL $name: curl error"; failures=$((failures + 1)); return; }
+  local args=("${extra[@]}")
+  if (( with_auth )); then args+=("${auth[@]}"); fi
+  out="$(curl -sS -w $'\n%{http_code}' "${args[@]}" "$@" "$url")" || { echo "FAIL $name: curl error"; failures=$((failures + 1)); return; }
   code="${out##*$'\n'}"
   body="${out%$'\n'*}"
   if [[ "$code" == "$status" && "$body" == *"$needle"* ]]; then
@@ -34,6 +45,8 @@ post() { # post METHOD-HEADER [NAME-HEADER] BODY
 }
 
 mapfile -t a < <(post server/discover '' "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"server/discover\",\"params\":{$meta}}")
+check_noauth 'no token' 401 'Unauthorized' "${a[@]}"
+check_noauth 'wrong token' 401 'Unauthorized' -H 'Authorization: Bearer wrong-token' "${a[@]}"
 check 'server/discover' 200 '"supportedVersions":["2026-07-28","2025-11-25"]' "${a[@]}"
 
 mapfile -t a < <(post tools/list '' "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{$meta}}")

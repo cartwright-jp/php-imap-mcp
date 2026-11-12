@@ -10,3 +10,5 @@ parameters:
         - src
         - tests
         - public
+        - bin
+        - config.example.php

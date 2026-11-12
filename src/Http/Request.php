@@ -20,6 +20,8 @@ final class Request
         array $headers,
         public readonly string $body,
         public readonly bool $bodyTooLarge = false,
+        /** REMOTE_ADDR. X-Forwarded-For is ignored because any client can set it. */
+        public readonly string $remoteAddr = '',
     ) {
         foreach ($headers as $name => $value) {
             $this->headers[strtolower($name)] = $value;
@@ -59,12 +61,14 @@ final class Request
         $body = file_get_contents('php://input', false, null, 0, $maxBodyBytes + 1);
         $body = $body === false ? '' : $body;
         $tooLarge = strlen($body) > $maxBodyBytes;
+        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
 
         return new self(
             is_string($method) ? strtoupper($method) : 'GET',
             $headers,
             $tooLarge ? '' : $body,
             $tooLarge,
+            is_string($remoteAddr) ? $remoteAddr : '',
         );
     }
 

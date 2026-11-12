@@ -12,7 +12,9 @@ use Cartwright\ImapMcp\Mcp\JsonRpcError;
 use Cartwright\ImapMcp\Mcp\ProtocolVersion;
 use Cartwright\ImapMcp\Mcp\Server;
 use Cartwright\ImapMcp\ServerInfo;
+use Cartwright\ImapMcp\Tests\Support\MemoryAuditLogger;
 use Cartwright\ImapMcp\Tools\EchoTool;
+use Cartwright\ImapMcp\Tools\Tool;
 use Cartwright\ImapMcp\Tools\ToolRegistry;
 use Cartwright\ImapMcp\Tools\ToolResult;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -338,20 +340,79 @@ final class ServerTest extends TestCase
         self::assertSame('POST', $response->headers['Allow']);
     }
 
-    public function testDisallowedOriginIsForbidden(): void
-    {
-        $response = $this->send($this->modern('tools/list', [], ['Origin' => 'https://evil.example']));
+    // Origin, source IP and the Bearer token are checked before the server (Auth\GuardTest).
 
-        self::assertSame(403, $response->status);
-        self::assertArrayNotHasKey('id', $this->body($response));
+    // ---- audit log ----
+
+    public function testToolCallIsAudited(): void
+    {
+        $audit = new MemoryAuditLogger();
+        (new Server(new ToolRegistry([new EchoTool()]), $audit))
+            ->handle($this->modern('tools/call', ['name' => 'echo', 'arguments' => ['text' => 'hello']]));
+
+        $record = $audit->events('tools/call')[0];
+        self::assertSame('echo', $record['tool']);
+        self::assertSame(['text_length' => 5], $record['arguments']);
+        self::assertSame('ok', $record['result']);
+        self::assertSame('2026-07-28', $record['protocol']);
+        self::assertSame(['name' => 'test', 'version' => '1.0'], $record['client']);
     }
 
-    public function testAllowedOriginIsAccepted(): void
+    public function testLegacyToolCallIsAudited(): void
     {
-        $server = new Server(new ToolRegistry([new EchoTool()]), ['https://app.example']);
-        $response = $server->handle($this->modern('tools/list', [], ['Origin' => 'https://app.example']));
+        $audit = new MemoryAuditLogger();
+        (new Server(new ToolRegistry([new EchoTool()]), $audit))
+            ->handle($this->legacy('tools/call', ['name' => 'echo', 'arguments' => ['text' => 'hi']]));
 
-        self::assertSame(200, $response->status);
+        $record = $audit->events('tools/call')[0];
+        self::assertSame('ok', $record['result']);
+        self::assertSame('2025-11-25', $record['protocol']);
+        self::assertArrayNotHasKey('client', $record);
+    }
+
+    public function testToolErrorAndUnexpectedExceptionAreAudited(): void
+    {
+        $audit = new MemoryAuditLogger();
+        $failing = new class implements Tool {
+            public function name(): string
+            {
+                return 'failing';
+            }
+
+            public function definition(): array
+            {
+                return [];
+            }
+
+            public function call(array $arguments): ToolResult
+            {
+                if (($arguments['mode'] ?? null) === 'throw') {
+                    throw new \RuntimeException('/secret/path');
+                }
+
+                return ToolResult::error('Mailbox not found');
+            }
+
+            public function auditArguments(array $arguments): array
+            {
+                return ['mode' => $arguments['mode'] ?? null];
+            }
+        };
+        $server = new Server(new ToolRegistry([$failing]), $audit);
+        $logged = ini_set('error_log', '/dev/null');
+
+        $server->handle($this->modern('tools/call', ['name' => 'failing', 'arguments' => ['mode' => 'error']]));
+        $response = $server->handle(
+            $this->modern('tools/call', ['name' => 'failing', 'arguments' => ['mode' => 'throw']]),
+        );
+        ini_set('error_log', (string) $logged);
+
+        self::assertSame(500, $response->status);
+        self::assertStringNotContainsString('/secret/path', $response->body);
+        self::assertSame(
+            ['tool_error', 'internal_error'],
+            array_column($audit->events('tools/call'), 'result'),
+        );
     }
 
     public function testContentTypeMustBeJson(): void

@@ -60,7 +60,7 @@
     "scripts-descriptions": {
         "test": "Run unit tests",
         "test:integration": "Run integration tests against the test mail server (docker compose up -d)",
-        "test:e2e": "Run the curl smoke test against a running server (composer serve)",
+        "test:e2e": "Run the curl smoke test against a running server (needs MCP_TOKEN, see tests/e2e/make-config.php)",
         "serve": "Start the development server at http://127.0.0.1:18080/",
         "stan": "Run PHPStan (level 8)",
         "cs": "Check coding style (PSR-12)",
