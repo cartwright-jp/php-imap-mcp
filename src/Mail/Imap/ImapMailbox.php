@@ -303,6 +303,32 @@ final class ImapMailbox implements Mailbox
         );
     }
 
+    public function appendDraft(string $folder, string $message, string $messageId): ?int
+    {
+        $this->open($folder, false); // reports a missing folder as such
+        $raw = self::encodeName($folder);
+        $imap = $this->connection();
+        $flags = ['\\Draft', '\\Seen'];
+        $lines = $this->call(static fn () => $imap->appendMessage($raw, $message, $flags)->validatedData());
+        $this->selected = null; // the folder changed
+
+        // UIDPLUS (RFC 4315): "OK [APPENDUID <uidvalidity> <uid>] ..."
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (is_string($line) && preg_match('/\[APPENDUID \d+ (\d+)\]/i', $line, $m) === 1) {
+                return (int) $m[1];
+            }
+        }
+        // Without UIDPLUS, find the draft by its Message-ID.
+        $this->open($folder, false);
+        $ids = $this->call(static fn () => $imap->search(
+            ['HEADER', 'Message-ID', $imap->escapeString('<' . $messageId . '>')],
+            IMAP::ST_UID,
+        )->validatedData());
+        $uids = array_map('intval', array_filter(is_array($ids) ? $ids : [], 'is_numeric'));
+
+        return $uids === [] ? null : max($uids);
+    }
+
     public function close(): void
     {
         if ($this->imap !== null) {

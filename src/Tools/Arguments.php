@@ -45,6 +45,49 @@ final class Arguments
     }
 
     /**
+     * Multi-line text (a message body): newlines and tabs are allowed, other control characters are not.
+     */
+    public function text(string $name, int $maxLength): ?string
+    {
+        $value = $this->arguments[$name] ?? null;
+        if ($value === null) {
+            return null;
+        }
+        if (!is_string($value) || !mb_check_encoding($value, 'UTF-8')) {
+            throw new InvalidToolArguments(sprintf("'%s' must be a string", $name));
+        }
+        if (mb_strlen($value, 'UTF-8') > $maxLength) {
+            throw new InvalidToolArguments(sprintf("'%s' must be at most %d characters", $name, $maxLength));
+        }
+        if (preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $value) === 1) {
+            throw new InvalidToolArguments(sprintf("'%s' must not contain control characters", $name));
+        }
+
+        return $value;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function stringList(string $name, int $maxItems, int $maxLength): array
+    {
+        $value = $this->arguments[$name] ?? null;
+        if ($value === null) {
+            return [];
+        }
+        if (!is_array($value) || !array_is_list($value) || count($value) > $maxItems) {
+            throw new InvalidToolArguments(sprintf("'%s' must be a list of at most %d strings", $name, $maxItems));
+        }
+        $items = [];
+        foreach ($value as $i => $item) {
+            $key = $name . "[$i]";
+            $items[] = (new self([$key => $item], [$key]))->string($key, $maxLength) ?? '';
+        }
+
+        return $items;
+    }
+
+    /**
      * A folder name: 1-255 characters (SPEC.md 6).
      */
     public function folder(string $name = 'folder'): string

@@ -50,7 +50,7 @@ check_noauth 'wrong token' 401 'Unauthorized' -H 'Authorization: Bearer wrong-to
 check 'server/discover' 200 '"supportedVersions":["2026-07-28","2025-11-25"]' "${a[@]}"
 
 mapfile -t a < <(post tools/list '' "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{$meta}}")
-check 'tools/list' 200 '"name":"search_emails"' "${a[@]}"
+check 'tools/list' 200 '"name":"save_draft"' "${a[@]}"
 
 # The throwaway config points at a mail server this test does not need: the tool must fail cleanly
 # (isError with a short message, no stack trace or path).

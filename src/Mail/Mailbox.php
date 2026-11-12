@@ -42,6 +42,15 @@ interface Mailbox
     public function message(string $folder, int $uid, int $maxChars, bool $markSeen, ?int $uidValidity): ?MessageDetail;
 
     /**
+     * Saves a message to the folder with the \Draft and \Seen flags (IMAP APPEND). Never sends anything.
+     *
+     * @param string $messageId used to find the UID when the server does not report it (no UIDPLUS)
+     *
+     * @return int|null the new UID, or null when the server does not tell
+     */
+    public function appendDraft(string $folder, string $message, string $messageId): ?int;
+
+    /**
      * Disconnects. Safe to call more than once and when never connected.
      */
     public function close(): void;
