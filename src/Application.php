@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Cartwright\ImapMcp;
 
 use Cartwright\ImapMcp\Auth\Account;
-use Cartwright\ImapMcp\Auth\ConfigAccountResolver;
-use Cartwright\ImapMcp\Auth\BearerAuthenticator;
 use Cartwright\ImapMcp\Auth\Guard;
 use Cartwright\ImapMcp\Auth\Lockout;
 use Cartwright\ImapMcp\Auth\OAuth\AccessTokenAuthenticator;
@@ -18,8 +16,6 @@ use Cartwright\ImapMcp\Auth\OAuth\OAuthSettings;
 use Cartwright\ImapMcp\Auth\OAuth\Sealer;
 use Cartwright\ImapMcp\Auth\OAuth\TokenEndpoint;
 use Cartwright\ImapMcp\Auth\OAuth\TokenIssuer;
-use Cartwright\ImapMcp\Auth\StaticTokenAuthenticator;
-use Cartwright\ImapMcp\Auth\TokenAuthenticator;
 use Cartwright\ImapMcp\Config\Config;
 use Cartwright\ImapMcp\Config\ConfigException;
 use Cartwright\ImapMcp\Config\ConfigLoader;
@@ -87,12 +83,11 @@ final class Application
     {
         $audit = $this->audit->withContext(['ip' => $request->remoteAddr]);
         $oauth = $this->config->oauth;
-        $guard = new Guard($this->config, $this->authenticator(), $this->lockout, $audit);
-        if ($oauth !== null) {
-            $route = self::route($request->path);
-            if ($route !== self::ROUTE_MCP) {
-                return $this->handleOAuth($route, $request, $oauth, $guard, $audit);
-            }
+        $authenticator = new AccessTokenAuthenticator($oauth, new Sealer($oauth->key), $this->ids);
+        $guard = new Guard($this->config, $authenticator, $this->lockout, $audit);
+        $route = self::route($request->path);
+        if ($route !== self::ROUTE_MCP) {
+            return $this->handleOAuth($route, $request, $oauth, $guard, $audit);
         }
 
         $principal = $guard->check($request);
@@ -100,11 +95,11 @@ final class Application
             return $principal;
         }
         $account = $principal->account;
-        $audit = $audit->withContext(array_filter(
-            // In token mode the account id, not the address, so the log holds no more personal data than needed.
-            ['account' => $account->id, 'token' => $principal->label, 'grant' => $principal->grantId],
-            static fn (?string $v): bool => $v !== null,
-        ));
+        $audit = $audit->withContext([
+            'account' => $account->id,
+            'oauth_client' => $principal->clientId,
+            'grant' => $principal->grantId,
+        ]);
         $deadline = Deadline::in($this->config->runtime->requestBudgetSec);
         // Connects only when a tool uses it; disconnects at the end of the request (SPEC.md 4).
         $mailbox = ($this->mailboxFactory)($account);
@@ -118,7 +113,7 @@ final class Application
     }
 
     /**
-     * Which part of the server a path belongs to (imap_oauth mode). Works wherever index.php is installed:
+     * Which part of the server a path belongs to. Works wherever index.php is installed:
      * /mcp/authorize, /authorize and the root's /.well-known/oauth-authorization-server/mcp all match.
      */
     public static function route(string $path): string
@@ -171,19 +166,6 @@ final class Application
         return Response::json(200, $route === self::ROUTE_RESOURCE_METADATA
             ? Metadata::protectedResource($oauth)
             : Metadata::authorizationServer($oauth));
-    }
-
-    private function authenticator(): BearerAuthenticator
-    {
-        $oauth = $this->config->oauth;
-        if ($oauth !== null) {
-            return new AccessTokenAuthenticator($oauth, new Sealer($oauth->key), $this->ids);
-        }
-
-        return new StaticTokenAuthenticator(
-            new TokenAuthenticator($this->config->tokens),
-            new ConfigAccountResolver($this->config->accounts),
-        );
     }
 
     /**

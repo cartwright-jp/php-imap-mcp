@@ -7,7 +7,7 @@ namespace Cartwright\ImapMcp\Auth\OAuth;
 use Cartwright\ImapMcp\Auth\Account;
 
 /**
- * config.php auth.oauth (imap_oauth mode, SPEC.md 7, 8).
+ * config.php auth.oauth (SPEC.md 7, 8).
  */
 final class OAuthSettings
 {

@@ -29,7 +29,7 @@ final class ConfigLoaderTest extends TestCase
 
     public function testLoadsAPrivateConfigWithoutWarnings(): void
     {
-        $path = $this->write(TestConfig::raw(['runtime' => null]), 0600);
+        $path = $this->write(self::raw(['runtime' => null]), 0600);
 
         $config = ConfigLoader::load($path);
 
@@ -42,14 +42,14 @@ final class ConfigLoaderTest extends TestCase
         if (PHP_OS_FAMILY === 'Windows') {
             self::markTestSkipped('POSIX permissions only');
         }
-        $path = $this->write(TestConfig::raw(), 0644);
+        $path = $this->write(self::raw(), 0644);
 
         self::assertStringContainsString('chmod 600', implode("\n", ConfigLoader::load($path)->warnings));
     }
 
     public function testWarnsWhenConfigOrStorageIsInsideTheDocumentRoot(): void
     {
-        $path = $this->write(TestConfig::raw(['runtime' => null]), 0600);
+        $path = $this->write(self::raw(['runtime' => null]), 0600);
 
         $warnings = ConfigLoader::load($path, $this->dir->path)->warnings;
 
@@ -62,7 +62,7 @@ final class ConfigLoaderTest extends TestCase
     {
         $public = $this->dir->path . '/public_html';
         mkdir($public);
-        $path = $this->write(TestConfig::raw(['runtime' => null]), 0600);
+        $path = $this->write(self::raw(['runtime' => null]), 0600);
 
         self::assertSame([], ConfigLoader::load($path, $public)->warnings);
     }
@@ -95,6 +95,22 @@ final class ConfigLoaderTest extends TestCase
         putenv(ConfigLoader::ENV_VAR . '=/from/env/config.php');
 
         self::assertSame('/from/env/config.php', ConfigLoader::resolvePath('/default/config.php'));
+    }
+
+    /**
+     * TestConfig without its public client, so no warning is expected by default.
+     *
+     * @param array<string, mixed> $overrides
+     *
+     * @return array<string, mixed>
+     */
+    private static function raw(array $overrides = []): array
+    {
+        $raw = TestConfig::raw($overrides);
+        $clients = $raw['auth']['oauth']['clients'];
+        $raw['auth']['oauth']['clients'] = [$clients[0]];
+
+        return $raw;
     }
 
     /**

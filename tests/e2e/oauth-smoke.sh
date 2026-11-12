@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# End-to-end smoke test of the OAuth endpoints (imap_oauth mode, SPEC.md 7) with curl.
+# End-to-end smoke test of the OAuth endpoints (SPEC.md 7) with curl.
 # Usage: bash tests/e2e/oauth-smoke.sh [BASE_URL]   (default: http://127.0.0.1:18080)
-# Start the server with a config from: php tests/e2e/make-config.php DIR --oauth
+# Start the server with a config from: php tests/e2e/make-config.php DIR
 # The login itself needs a real IMAP server and is covered by the unit and integration tests.
 set -u
 base="${1:-http://127.0.0.1:18080}"

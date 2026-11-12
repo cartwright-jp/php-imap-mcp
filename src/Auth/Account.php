@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Cartwright\ImapMcp\Auth;
 
 /**
- * The mail account a request works on, as chosen by the AccountResolver (SPEC.md 4).
+ * The mail account a request works on, taken from the sealed OAuth access token (SPEC.md 4, 7).
  *
  * The password is kept out of var_dump/print_r output; never log or return it.
  */

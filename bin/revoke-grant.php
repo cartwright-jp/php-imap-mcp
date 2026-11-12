@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /*
- * Signs one login out (imap_oauth mode, SPEC.md 7): its access and refresh tokens stop working.
+ * Signs one login out (SPEC.md 7): its access and refresh tokens stop working.
  *
  *   php bin/revoke-grant.php GRANT_ID [path/to/config.php]
  *
@@ -32,10 +32,6 @@ try {
     $config = ConfigLoader::load($path);
 } catch (ConfigException $e) {
     fwrite(STDERR, 'ERROR: ' . $e->getMessage() . "\n");
-    exit(1);
-}
-if ($config->oauth === null) {
-    fwrite(STDERR, "ERROR: auth.mode is not 'imap_oauth'\n");
     exit(1);
 }
 

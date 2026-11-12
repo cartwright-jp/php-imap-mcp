@@ -29,13 +29,13 @@ XServerなどの共用レンタルサーバーに置くだけで、Claudeなど�
 
 ## 2. スコープ
 
-MVPは「読み取り＋下書き保存＋トークン認証」に絞り、IMAPのみを扱う。SMTPによる送信は持たず、送信は人が手元のメーラーで行う。
+MVPは「読み取り＋下書き保存＋メールアカウントでのログイン（OAuth）」に絞り、IMAPのみを扱う。SMTPによる送信は持たず、送信は人が手元のメーラーで行う。
 
 | 区分 | 内容 |
 | --- | --- |
-| MVP（v0.1） | フォルダ一覧、メール検索・一覧、メール本文取得、下書き保存、Bearerトークン認証、操作ログ。運用はシングルユーザーだが、内部は複数アカウントを想定した構造にする（「4. アーキテクチャ」の `AccountResolver`） |
+| MVP（v0.1） | フォルダ一覧、メール検索・一覧、メール本文取得、下書き保存、IMAP認証によるOAuth（M5で前倒し。設定ファイルにメールのパスワードを置かない）、操作ログ。ログインしたメールアカウントごとに動くので、複数の利用者に対応する |
 | v0.2 | 既読・フラグ操作、フォルダ移動（いずれも初期無効）、添付ファイルのメタ情報取得 |
-| v0.3 | IMAP認証によるOAuth（複数ユーザー対応。設定ファイルからメールのパスワードをなくす。「7. 認証・セキュリティ要件」参照）、ブラウザの初期設定画面、vendor同梱zip配布 |
+| v0.3 | ブラウザの初期設定画面、vendor同梱zip配布（IMAP認証によるOAuthはMVPに前倒しした） |
 | 将来 | 認証情報をリクエストヘッダーで受け取る方式（自前のログイン画面を置けない環境向けの代替）、外部IdPとの連携、添付ファイル本体の取得、他の共用サーバーでの動作検証 |
 
 **非対象（やらないこと）**
@@ -87,12 +87,12 @@ flowchart LR
         subgraph priv["~/php-imap-mcp（非公開）"]
             cfg["config.php<br/>パスワード等（権限600）"]
             var["var/<br/>監査ログ・レート制限"]
-            auth["認証・ポリシー<br/>トークン照合・送信制限"]
+            auth["認証・ポリシー<br/>アクセストークンの検証"]
             tools["ツール実行<br/>読み取り・下書き保存"]
         end
         mail["メールサーバー<br/>IMAP 993（SMTPは使わない）"]
     end
-    cloud -- "HTTPS POST /mcp/<br/>Bearer トークン付き" --> ht
+    cloud -- "HTTPS POST /mcp/<br/>アクセストークン付き" --> ht
     idx --> auth --> tools
     tools -- 1リクエストごとに接続 --> mail
 ```
@@ -102,18 +102,17 @@ flowchart LR
 **1リクエストの処理の流れ**
 
 1. `.htaccess` とPHPで、接続元IPとOriginを確認する
-2. Bearerトークンを照合し、ロックアウトの状態を確認する
+2. アクセストークン（OAuth）を検証し、ロックアウトの状態を確認する。ログイン画面とトークンのエンドポイントはこの手前で振り分ける（「7. 認証・セキュリティ要件」）
 3. JSON-RPCを解析し、メソッドに振り分ける
 4. `tools/call` なら、ツールの有効・無効、引数、ポリシー（アクセスできるフォルダ、取得件数の上限）を検証する
 5. IMAPに接続して処理し、切断する
 6. 監査ログを書き、JSONで応答する
 
-**アカウントの解決（AccountResolver）**
+**アカウントの解決**
 
 認証の結果から「このリクエストで使うメールアカウント（アドレスとIMAPの認証情報）」を決める層を置き、ツールはそれを受け取って動く。ツールが設定を直接読むことはしない。
 
-- MVP: トークンから設定ファイルのアカウントを引く実装（運用は1件）
-- v0.3: 封をしたトークンを復号してアカウントを得る実装に差し替える（「7. 認証・セキュリティ要件」参照）
+- 封をしたアクセストークンを復号してアカウントを得る（`Auth/OAuth/AccessTokenAuthenticator`。「7. 認証・セキュリティ要件」参照）。設定ファイルにアカウントは書かない
 - 監査ログには最初から「どのアカウントの操作か」を記録する
 
 **ディレクトリ構成**
@@ -126,13 +125,13 @@ php-imap-mcp/
 ├── src/
 │   ├── Http/               # リクエストと応答、CORSとOrigin
 │   ├── Mcp/                # JSON-RPC、メソッドの振り分け、バージョン交渉
-│   ├── Auth/               # トークン照合、IP判定、ロックアウト、AccountResolver
+│   ├── Auth/               # IP判定、ロックアウト、OAuth（ログイン画面、トークン、封印、メタデータ）
 │   ├── Policy/             # ツールの有効・無効、フォルダ、宛先、送信数の制限
 │   ├── Tools/              # 1ツール1クラス（スキーマと実行）
 │   ├── Mail/               # IMAPの抽象化、MIMEと文字コードの変換
 │   ├── Log/                # 監査ログ（JSON Lines）
 │   └── Config/             # 設定の読み込みと検証
-├── bin/                    # generate-token.php, generate-key.php, revoke-grant.php, check-config.php
+├── bin/                    # generate-key.php, generate-client-secret.php, revoke-grant.php, check-config.php
 ├── tests/                  # Unit/, Integration/, fixtures/（日本語メール）
 ├── docs/SPEC.md            # この仕様書
 ├── config.example.php
@@ -201,7 +200,7 @@ MCP仕様の2026-07-28版（状態を持たないコア）を主な対象とし�
 - プロトコルエラー（JSONの不正 `-32700`、リクエスト不正 `-32600`、引数不正・未知のツール `-32602`）はJSON-RPCの `error` で返す。`-32700` と `-32600` はHTTP `400`
 - ツール実行中の失敗（IMAP接続失敗、メールが見つからない等）は `result.isError: true` と、AIが次の行動を決められる短い説明で返す
 - ツールの予期しない例外は `-32603`（HTTP `500`）とし、例外の種類だけをサーバーのエラーログに残す
-- 認証失敗はHTTP `401`。MVPは `WWW-Authenticate: Bearer`、v0.3以降は `resource_metadata` パラメータを付けてProtected Resource Metadataの場所を示す。接続元IPの拒否、許可されていない `Origin`、ロックアウト中のIP（トークンは照合しない）、権限不足は `403`。失敗の理由（トークンがない・形式が違う・一致しない）は応答に含めず、監査ログにだけ記録する
+- 認証失敗はHTTP `401`。`WWW-Authenticate: Bearer` に `resource_metadata` パラメータ（Protected Resource Metadataの場所）と `scope` を付ける。接続元IPの拒否、許可されていない `Origin`、ロックアウト中のIP（トークンは照合しない）、権限不足は `403`。失敗の理由（トークンがない・形式が違う・一致しない）は応答に含めず、監査ログにだけ記録する
 - 応答にパスワード、サーバーのパス、スタックトレースを含めない
 - バッチ（JSON配列）リクエストと、クライアントからのJSON-RPC応答は受け付けない（`400`、`-32600`）。`id` は文字列か整数で、`null` は不可
 - `id` が分からないエラー（JSONの不正など）は、`id` を省いて返す
@@ -231,7 +230,7 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
 
 **save_draft の詳細**
 
-- 本文はテキストのみ（UTF-8、quoted-printable）。件名と日本語の宛名はRFC 2047でエンコードする。From は設定の `email` と `from_name`、Date は `runtime.timezone` の時刻、Message-ID はサーバーで生成する
+- 本文はテキストのみ（UTF-8、quoted-printable）。件名と日本語の宛名はRFC 2047でエンコードする。From はログインしたメールアドレス（表示名は付けない。「12. 未決事項」）、Date は `runtime.timezone` の時刻、Message-ID はサーバーで生成する
 - 保存先は `folders.drafts`。未設定なら特殊用途（または名前）が下書きのフォルダを探し、見つからなければエラーにする。`\Draft` と `\Seen` のフラグを付ける。UIDはAPPENDUID（UIDPLUS）から得て、ないサーバーではMessage-IDで検索する
 - 返信（in\_reply\_to\_uid）では、元のメールのMessage-IDを In-Reply-To に、元の References にそれを足したもの（新しい20件まで）を References に入れる。to を省くと元の Reply-To（なければ From）、subject を省くと「Re: 元の件名」（すでに Re: で始まるなら そのまま）にする
 - 宛先は To と Cc で合計50件まで。Bcc は扱わない。宛先と件名の改行などの制御文字は拒否する（ヘッダーインジェクション対策）。本文は10万字まで
@@ -247,14 +246,11 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
 
 **認証**
 
-- MVPはBearerトークン。claude.aiのカスタムコネクタの「Request headers」に `Authorization: Bearer <token>` を設定する
-- トークンは32バイト以上の乱数。設定には平文ではなくハッシュ（SHA-256）を保存し、`hash_equals` で比較する。各トークンは使えるアカウントを参照する
-- トークン生成コマンド（`php bin/generate-token.php`）を用意する
-- 複数トークンの併存を許し、入れ替えを無停止で行えるようにする（コネクタの認証設定は後から変更できず、削除して再登録が必要なため）
+- 認証はIMAP認証によるOAuthだけ（下記）。利用者はログイン画面でメールアドレスとパスワードを入力する
+- 設定ファイルに書いた固定のBearerトークンで認証する方式（M2で実装した「token」モード）は、2026-11-12に廃止した。設定ファイルにメールのパスワードを置く必要があり、OAuthと二本立てにすると防御を二重に保守することになるため。設定に `accounts`、`auth.tokens`、`auth.mode` があると、移行を案内して起動を拒否する
 - セッションID、ツールの引数、`clientInfo` は本人確認に使わない
-- M5でIMAP認証によるOAuthに移行する（下記）
 
-**複数ユーザーとIMAP認証によるOAuth（M5、v0.3から前倒し）**
+**IMAP認証によるOAuth（M5、v0.3から前倒し）**
 
 本人確認はIMAPのログインそのものとし、メールのパスワードはサーバーにもクライアントにも平文で保存しない。アカウントの管理はXServerのメール設定に一元化される。
 
@@ -290,7 +286,7 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
 
 要件と、それを確かめるテストの対応は [docs/oauth-checklist.md](oauth-checklist.md) にまとめる。
 
-- モード: `auth.mode` を `imap_oauth` にすると有効になる。`token`（Bearerトークン）とはどちらか一方。`imap_oauth` では `accounts` と `auth.tokens` を書くと起動を拒否する（パスワードを残さないため）
+- 設定: `auth.oauth` が必須。`accounts` と `auth.tokens` は書けない（パスワードを残さないため）
 - URL の配置（例: MCP が `https://example.com/mcp/`）
   - 発行者（issuer）: `https://example.com/mcp`（`resource` から末尾の `/` を除いたもの）
   - ログイン画面: `/mcp/authorize`、トークン: `/mcp/token`
@@ -301,10 +297,10 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
 - 封印トークン: アクセストークン、リフレッシュトークン、認可コード、ログイン画面の要求を、すべて XChaCha20-Poly1305（sodium）で封印する。種類ごとの接頭辞（`pim_at_` など）を付け、種類を関連データにも入れて、別の種類として使えないようにする
 - 期限: 認可コード5分、ログイン画面10分、アクセストークンとリフレッシュトークンは設定（上記）
 - ログイン画面の防御: 封印したログイン要求と同じ値の Cookie（HttpOnly、Secure、SameSite=Lax）で CSRF を防ぐ。Origin が自サーバー以外なら拒否する。`Content-Security-Policy`（`frame-ancestors 'none'`、`form-action` は自サーバーとリダイレクト先だけ）と `X-Frame-Options: DENY` を付ける。リダイレクト先のホスト名とクライアント名を表示する
-- クライアント: 設定に事前登録する（`id`、`secret_hash`、`redirect_uris`、`name`）。シークレットは `bin/generate-token.php` で作り、ハッシュだけを書く。シークレットのないクライアントは公開クライアント（PKCEのみ）として扱い、警告を出す
+- クライアント: 設定に事前登録する（`id`、`secret_hash`、`redirect_uris`、`name`）。シークレットは `bin/generate-client-secret.php` で作り、ハッシュだけを書く。シークレットのないクライアントは公開クライアント（PKCEのみ）として扱い、警告を出す
 - 取り消し: ログイン単位（grant）で `php bin/revoke-grant.php <grant>`。grant は監査ログの `oauth_login` などに記録される。全員の取り消しは `oauth.key` の入れ替え（`bin/generate-key.php`）
 - 監査ログ: `oauth_login`、`oauth_login_failed`、`oauth_token`、`oauth_grant_failed`、`oauth_client_failed`、`oauth_refresh_reuse` を記録する。アカウントはメールアドレスで、パスワードとトークンは記録しない
-- `bin/check-config.php` は imap_oauth では URL、クライアント、ドメインを表示し、IMAP の確認はログイン画面で行うよう案内する
+- `bin/check-config.php` は URL、クライアント、ドメインを表示する。`--login user@example.com` を付けると、その場でパスワードを尋ねてIMAPにログインし、下書きフォルダを検出する（パスワードは保存しない）
 
 **接続元の制限**
 
@@ -337,7 +333,7 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
 
 **監査ログ**
 
-- 全ての `tools/call` を記録する（日時、接続元IP、アカウントID、トークンのラベル、ツール名、引数の要約、結果、処理時間、`clientInfo`）
+- 全ての `tools/call` を記録する（日時、接続元IP、アカウント（メールアドレス）、OAuthクライアント、grant、ツール名、引数の要約、結果、処理時間、`clientInfo`）
 - 認証の失敗（理由のみ）とロックアウトの開始も記録する。ロックアウト中に拒否したリクエストは1件ずつは記録しない（ログでディスクを埋められないようにするため）
 - 引数の要約はツールごとに記録してよい項目だけを返す（許可した項目だけを残す方式）。下書き保存は宛先と件名まで記録する。本文とトークンは記録しない
 
@@ -349,39 +345,24 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
 <?php
 // ~/php-imap-mcp/config.php  (public_html の外、パーミッション 600)
 return [
-    // MVP は1件だけ書く。構造は最初から配列（複数アカウント想定）
-    'accounts' => [
-        'default' => [
-            'email'     => 'you@example.com',
-            'password'  => '********',           // v0.3 のIMAP認証OAuthでは不要になる
-            'imap'      => ['host' => 'svXXXXX.xserver.jp', 'port' => 993, 'encryption' => 'ssl'],
-            'from_name' => '山田 太郎',              // 下書きの From に使う
-            'folders'   => ['drafts' => null, 'sent' => null], // null = 特殊用途から自動検出
-        ],
-    ],
+    // メールのパスワードは書かない。利用者がログイン画面で入力する（「7. 認証・セキュリティ要件」）
     'auth' => [
-        'mode'   => 'token',                       // MVP: token / v0.3: imap_oauth
-        'tokens' => [
-            ['hash' => 'sha256:...', 'account' => 'default', 'label' => 'claude.ai'], // bin/generate-token.php で生成
+        'oauth' => [
+            'resource'              => 'https://example.com/mcp/',   // クライアントに登録するMCPのURL
+            'key'                   => 'base64:...',                 // bin/generate-key.php で生成
+            'imap'                  => ['host' => 'svXXXXX.xserver.jp', 'port' => 993, 'encryption' => 'ssl'],
+            'allowed_email_domains' => ['example.com'],             // 必須。ログインできるドメイン
+            'access_ttl_sec'        => 3600,  // アクセストークンの有効期間（60〜86400）
+            'refresh_ttl_days'      => 30,    // リフレッシュのたびにこの日数だけ延長する（1〜365）
+            'clients'               => [[
+                'id' => 'claude', 'secret_hash' => 'sha256:...',   // bin/generate-client-secret.php。null なら公開クライアント
+                'redirect_uris' => ['https://...'], 'name' => 'Claude',
+            ]],
+            'folders'               => ['drafts' => null, 'sent' => null], // null = 特殊用途から自動検出
         ],
-        'allowed_ips'     => ['203.0.113.0/24'],   // 空 = 制限なし（警告を出す）
+        'allowed_ips'     => ['203.0.113.0/24'],   // ログイン画面以外に適用。空 = 制限なし（警告を出す）
         'allowed_origins' => [],
         'lockout'         => ['max_failures' => 10, 'window_sec' => 600, 'ban_sec' => 900],
-        // imap_oauth モードの例（全体は config.example.oauth.php。このモードでは accounts と tokens を書かない）
-        // 'mode'  => 'imap_oauth',
-        // 'oauth' => [
-        //     'resource'              => 'https://example.com/mcp/',   // クライアントに登録するMCPのURL
-        //     'key'                   => 'base64:...',                 // bin/generate-key.php で生成
-        //     'imap'                  => ['host' => 'svXXXXX.xserver.jp', 'port' => 993, 'encryption' => 'ssl'],
-        //     'allowed_email_domains' => ['example.com'],             // 必須。ログインできるドメイン
-        //     'access_ttl_sec'        => 3600,  // アクセストークンの有効期間（60〜86400）
-        //     'refresh_ttl_days'      => 30,    // リフレッシュのたびにこの日数だけ延長する（1〜365）
-        //     'clients'               => [[
-        //         'id' => 'claude', 'secret_hash' => 'sha256:...',   // null なら公開クライアント（PKCEのみ）
-        //         'redirect_uris' => ['https://...'], 'name' => 'Claude',
-        //     ]],
-        //     'folders'               => ['drafts' => null, 'sent' => null],
-        // ],
     ],
     'tools' => [
         'list_folders'  => true,
@@ -401,7 +382,7 @@ return [
         'timezone'   => 'Asia/Tokyo',
         'imap_timeout_sec' => 10,
         'request_budget_sec' => 25,
-        'storage_dir' => __DIR__ . '/var',  // ログ、レート制限、失効リスト
+        'storage_dir' => __DIR__ . '/var',  // ログ、レート制限、OAuthの使用済みIDと失効リスト
         'log_level'  => 'info',
     ],
 ];
@@ -409,7 +390,7 @@ return [
 
 **起動時の検証**
 
-- `auth.tokens` が空なら起動しない（認証なしでの公開を不可能にする）
+- `auth.oauth`（鍵、クライアント、ログインできるドメイン）がなければ起動しない（認証なしでの公開を不可能にする）
 - 未知のキーはエラーにする（`allowed_ip` のような綴りの誤りで、制限が黙って外れることを防ぐ）
 - `imap.encryption` は `ssl`（暗黙のTLS）か `starttls` のみ。平文の接続は設定できない
 - エラーはまとめて報告し、メッセージにはキー名だけを含めて値（パスワード等）は含めない
@@ -448,10 +429,10 @@ return [
 
 1. SSHで接続し、`~/php-imap-mcp/` に配置して `composer install --no-dev` を実行する
 2. `config.example.php` を `config.php` にコピーして編集し、`chmod 600` する
-3. `php bin/generate-token.php` でトークンを作り、ハッシュを設定に書く
+3. `php bin/generate-key.php` で暗号鍵を、`php bin/generate-client-secret.php` でクライアントシークレットを作り、鍵とシークレットのハッシュを設定に書く
 4. `php bin/check-config.php` で、IMAPへの接続を確認する
 5. `public/index.php` と `public/.htaccess` を `~/example.com/public_html/mcp/` に配置する
-6. claude.aiのカスタムコネクタにURLを登録し、Request headersに `Authorization: Bearer <token>` を設定する
+6. claude.aiのカスタムコネクタにURLを登録し、詳細設定にクライアントIDとシークレットを入力する。接続するとログイン画面が開くので、メールアドレスとパスワードでログインする
 
 **OSS運営**
 
@@ -477,7 +458,7 @@ return [
 
 - [ ] claude.aiのカスタムコネクタとして登録でき、スマホのアプリからも `search_emails` が使える
 - [ ] 「先週○○さんから来たメールを要約して」「返信を下書きして」が一連で成功し、下書きが手元のメーラーの下書きフォルダにスレッド付きで表示され、そのまま送信できる
-- [ ] トークンがない、または誤っているリクエストを `401` で拒否し、ログに記録する
+- [ ] アクセストークンがない、または誤っているリクエストを `401` で拒否し、ログに記録する
 - [ ] 許可していないIPからのリクエストを `403` で拒否する
 - [ ] 無効にした書き込み系ツールが `tools/list` に現れず、名前を指定して呼んでも拒否される
 - [ ] コードと依存にSMTP送信の経路が存在しない（送信系のライブラリを含まない）
@@ -501,7 +482,7 @@ return [
 
 1. **M0 下準備**: リポジトリ、Composer、PHPUnit、PHPStan、CI、Docker上のテスト用メールサーバー、`CLAUDE.md`
 2. **M1 プロトコル層**: 2026-07-28版の `server/discover`、ヘッダー検証、`tools/list` とダミーツール。2025-11-25版の `initialize` / `ping` 互換。MCP Inspectorとclaude.aiの両方で接続できることを確認する
-3. **M2 認証と防御**: Bearerトークン、`AccountResolver`、IP制限、Originの検証、ロックアウト、監査ログ、設定の検証
+3. **M2 認証と防御**: Bearerトークン（M5の後に廃止）、IP制限、Originの検証、ロックアウト、監査ログ、設定の検証
 4. **M3 読み取りツール**: `list_folders`、`search_emails`、`get_email`、日本語の文字コード対応
 5. **M4 下書き**: `save_draft`（返信のスレッド情報を含む）
 6. **M5 IMAP認証によるOAuth**（v0.3から前倒し）: ログイン画面、封をしたトークン、Protected Resource Metadata、設定ファイルからのパスワードの除去（「7. 認証・セキュリティ要件」）
@@ -523,11 +504,12 @@ M0〜M4は2026-11-12に完了した。M5も同日に実装した（自動テス�
 - [ ] Anthropicの送信元IP範囲を公式ドキュメントで確認し、変わったときの追従方法を決める
 - [ ] XServerでPHPの実行時間制限と、外部からのアクセス制限機能（国外IP制限など）がどう影響するかを実機で確認する（Anthropicの接続元は国外のIPの可能性が高い）
 - [x] OAuth（M5）を自前で実装するか、`league/oauth2-server` などを使うか: 自前で実装する（2026-11-12決定。「7. 認証・セキュリティ要件」）
-- [ ] OAuthを前倒ししたことに合わせて、「2. スコープ」の版の区切り（v0.1にOAuthを含めるか、Bearerトークン方式を残すか）を見直す。M7（公開準備）までに決める
+- [x] OAuthを前倒ししたことに合わせて、「2. スコープ」の版の区切りを見直す: v0.1にOAuthを含め、Bearerトークン方式は廃止する（2026-11-12決定）
 - [ ] 公式PHP SDK（`mcp/sdk`）に移行する時期の判断基準
 - [ ] `webklex/php-imap` が引き込む illuminate 5.4 系（2017年版で更新が止まっている）の扱い。実際に使うのは接続とコマンド送受信の層だけなので、webklex の依存が新しくなるか、自前の最小実装に置き換えるかを v0.2 までに判断する
 - [ ] XServer のIMAPサーバーが SPECIAL-USE（`\Drafts` などのフラグ）に対応しているか、フォルダ名がどうなっているか（`INBOX.Drafts` など）を実機で確認する
 - [ ] OAuth を実機で確認する（M6）: claude.ai のカスタムコネクタがクライアントIDとシークレットの事前登録で接続できるか、コールバックURL（`redirect_uris` に書く値）、認可サーバーのメタデータを `/mcp/.well-known/openid-configuration` で見つけられるか（だめならサイト直下の `.htaccess` で転送する）、`.htaccess` の `RewriteRule` とログイン画面だけを IP 制限から外す `<If>` が XServer で動くか、sodium 拡張が使えるか
+- [ ] 下書きの From に表示名（例: 山田 太郎）を付ける方法。固定トークン方式の廃止で設定の `from_name` がなくなったため、今は表示名なしのアドレスだけになる。ログイン画面で入力してもらう、メールサーバーの送信済みメールから推定する、ドメインごとに設定する、などの案がある
 - [ ] Client ID Metadata Documents（MCP で SHOULD）に対応するか。claude.ai が事前登録だけで動けば当面は不要
 - [x] プロダクト名の確定: `php-imap-mcp` に決定（IMAP専用のため）。パッケージ名は `cartwright-jp/php-imap-mcp`（2026-11-11 時点で Packagist・GitHub ともに同名なし、`cartwright-jp` も未使用）
 - [x] GitHub Organization `cartwright-jp` を作成する（2026-11-11 作成済み）

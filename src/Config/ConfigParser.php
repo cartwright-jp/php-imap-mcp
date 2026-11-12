@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 namespace Cartwright\ImapMcp\Config;
 
-use Cartwright\ImapMcp\Auth\Account;
 use Cartwright\ImapMcp\Auth\IpRange;
 use Cartwright\ImapMcp\Auth\LockoutSettings;
 use Cartwright\ImapMcp\Auth\OAuth\OAuthClient;
 use Cartwright\ImapMcp\Auth\OAuth\OAuthSettings;
-use Cartwright\ImapMcp\Auth\TokenEntry;
 use Cartwright\ImapMcp\Policy\MailPolicy;
 use Cartwright\ImapMcp\Policy\ToolPolicy;
 use DateTimeZone;
@@ -24,19 +22,17 @@ use InvalidArgumentException;
  */
 final class ConfigParser
 {
-    private const TOP_KEYS = ['accounts', 'auth', 'tools', 'policy', 'runtime'];
-    private const ACCOUNT_KEYS = ['email', 'password', 'imap', 'from_name', 'folders'];
+    private const TOP_KEYS = ['auth', 'tools', 'policy', 'runtime'];
     private const IMAP_KEYS = ['host', 'port', 'encryption'];
     /** Implicit TLS or STARTTLS only: plaintext IMAP is not supported (SPEC.md 7). */
     private const ENCRYPTIONS = ['ssl', 'starttls'];
     private const FOLDER_KEYS = ['drafts', 'sent'];
-    private const AUTH_KEYS = ['mode', 'tokens', 'allowed_ips', 'allowed_origins', 'lockout', 'oauth'];
+    private const AUTH_KEYS = ['oauth', 'allowed_ips', 'allowed_origins', 'lockout'];
     private const OAUTH_KEYS = [
         'resource', 'key', 'imap', 'allowed_email_domains', 'access_ttl_sec', 'refresh_ttl_days', 'clients', 'folders',
     ];
     private const CLIENT_KEYS = ['id', 'secret_hash', 'redirect_uris', 'name'];
     private const DOMAIN_PATTERN = '/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/';
-    private const TOKEN_KEYS = ['hash', 'account', 'label'];
     private const LOCKOUT_KEYS = ['max_failures', 'window_sec', 'ban_sec'];
     private const POLICY_KEYS = ['allowed_folders', 'search_limit_max', 'body_max_chars', 'deny_move_to_trash'];
     private const RUNTIME_KEYS = ['timezone', 'imap_timeout_sec', 'request_budget_sec', 'storage_dir', 'log_level'];
@@ -65,32 +61,23 @@ final class ConfigParser
         if (!is_array($raw) || ($raw !== [] && array_is_list($raw))) {
             throw new ConfigException(['config.php must return an array']);
         }
+        // Settings of the removed static-token sign-in get a pointer instead of a bare "unknown key" (SPEC.md 7).
+        if (array_key_exists('accounts', $raw)) {
+            $this->errors[] = 'accounts is no longer used: users sign in with their mail address and password, '
+                . 'so remove it (and the passwords) from config.php';
+            unset($raw['accounts']);
+        }
         $this->checkKeys($raw, self::TOP_KEYS, '');
 
         $auth = $this->section($raw, 'auth');
-        $this->checkKeys($auth, self::AUTH_KEYS, 'auth.');
-        $mode = $auth['mode'] ?? 'token';
-        $accounts = [];
-        $tokens = [];
-        $oauth = null;
-        if ($mode === 'imap_oauth') {
-            // Passwords come from the login page; none may linger in config.php (SPEC.md 7).
-            if (array_key_exists('accounts', $raw)) {
-                $this->errors[] = "accounts must not be set when auth.mode is 'imap_oauth' (remove the passwords)";
+        foreach (['mode', 'tokens'] as $removed) {
+            if (array_key_exists($removed, $auth)) {
+                $this->errors[] = sprintf('auth.%s is no longer used (OAuth is the only sign-in): remove it', $removed);
+                unset($auth[$removed]);
             }
-            if (array_key_exists('tokens', $auth)) {
-                $this->errors[] = "auth.tokens must not be set when auth.mode is 'imap_oauth'";
-            }
-            $oauth = $this->oauth($this->section($auth, 'oauth', 'auth.'));
-        } elseif ($mode === 'token') {
-            if (array_key_exists('oauth', $auth)) {
-                $this->errors[] = "auth.oauth is only used when auth.mode is 'imap_oauth'";
-            }
-            $accounts = $this->accounts($raw['accounts'] ?? null);
-            $tokens = $this->tokens($auth['tokens'] ?? null, $accounts);
-        } else {
-            $this->errors[] = "auth.mode must be 'token' or 'imap_oauth'";
         }
+        $this->checkKeys($auth, self::AUTH_KEYS, 'auth.');
+        $oauth = $this->oauth($this->section($auth, 'oauth', 'auth.'));
         $allowedIps = $this->allowedIps($auth['allowed_ips'] ?? []);
         $allowedOrigins = $this->allowedOrigins($auth['allowed_origins'] ?? []);
         $lockout = $this->lockout($this->section($auth, 'lockout', 'auth.'));
@@ -98,14 +85,12 @@ final class ConfigParser
         $policy = $this->policy($this->section($raw, 'policy'));
         $runtime = $this->runtime($this->section($raw, 'runtime'));
 
-        $incomplete = $mode === 'imap_oauth' ? $oauth === null : $tokens === [];
-        if ($this->errors !== [] || $incomplete || $runtime === null) {
+        if ($this->errors !== [] || $oauth === null || $runtime === null) {
             throw new ConfigException($this->errors);
         }
 
         return new Config(
-            $accounts,
-            $tokens,
+            $oauth,
             $allowedIps,
             $allowedOrigins,
             $lockout,
@@ -113,121 +98,11 @@ final class ConfigParser
             $policy,
             $runtime,
             $this->warnings,
-            $oauth,
         );
     }
 
     /**
-     * @return array<string, Account>
-     */
-    private function accounts(mixed $raw): array
-    {
-        if (!is_array($raw) || $raw === [] || array_is_list($raw)) {
-            $this->errors[] = 'accounts must be a non-empty array keyed by account id';
-            return [];
-        }
-        $accounts = [];
-        foreach ($raw as $id => $entry) {
-            $path = sprintf('accounts.%s', $id);
-            if (!is_string($id) || preg_match('/^[A-Za-z0-9_.-]{1,64}$/', $id) !== 1) {
-                $this->errors[] = 'account ids must be 1-64 characters of A-Z, a-z, 0-9, _, ., -';
-                continue;
-            }
-            if (!is_array($entry)) {
-                $this->errors[] = $path . ' must be an array';
-                continue;
-            }
-            $this->checkKeys($entry, self::ACCOUNT_KEYS, $path . '.');
-            $email = $entry['email'] ?? null;
-            if (!is_string($email) || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-                $this->errors[] = $path . '.email must be an email address';
-            }
-            $password = $entry['password'] ?? null;
-            if (!is_string($password) || $password === '') {
-                $this->errors[] = $path . '.password must be a non-empty string';
-            }
-            $imap = $this->section($entry, 'imap', $path . '.');
-            $this->checkKeys($imap, self::IMAP_KEYS, $path . '.imap.');
-            $host = $imap['host'] ?? null;
-            if (!is_string($host) || $host === '') {
-                $this->errors[] = $path . '.imap.host must be a non-empty string';
-            }
-            $port = $this->int($imap, 'port', 993, 1, 65535, $path . '.imap.');
-            $encryption = $imap['encryption'] ?? 'ssl';
-            if (!in_array($encryption, self::ENCRYPTIONS, true)) {
-                $this->errors[] = $path . ".imap.encryption must be 'ssl' or 'starttls' (plaintext is not supported)";
-            }
-            $fromName = $this->optionalString($entry, 'from_name', $path . '.');
-            $folders = $this->section($entry, 'folders', $path . '.');
-            $this->checkKeys($folders, self::FOLDER_KEYS, $path . '.folders.');
-            $drafts = $this->optionalString($folders, 'drafts', $path . '.folders.');
-            $sent = $this->optionalString($folders, 'sent', $path . '.folders.');
-
-            if (is_string($email) && is_string($password) && is_string($host) && is_string($encryption)) {
-                $accounts[$id] = new Account(
-                    $id,
-                    $email,
-                    $password,
-                    $host,
-                    $port,
-                    $encryption,
-                    $fromName,
-                    $drafts,
-                    $sent,
-                );
-            }
-        }
-
-        return $accounts;
-    }
-
-    /**
-     * @param array<string, Account> $accounts
-     *
-     * @return list<TokenEntry>
-     */
-    private function tokens(mixed $raw, array $accounts): array
-    {
-        // Without tokens the endpoint would be public: refuse to start (SPEC.md 8).
-        if (!is_array($raw) || $raw === [] || !array_is_list($raw)) {
-            $this->errors[] = 'auth.tokens must be a non-empty list (create one with bin/generate-token.php)';
-            return [];
-        }
-        $tokens = [];
-        $seen = [];
-        foreach ($raw as $i => $entry) {
-            $path = sprintf('auth.tokens[%d]', $i);
-            if (!is_array($entry)) {
-                $this->errors[] = $path . ' must be an array';
-                continue;
-            }
-            $this->checkKeys($entry, self::TOKEN_KEYS, $path . '.');
-            $hash = $entry['hash'] ?? null;
-            $prefix = preg_quote(TokenEntry::HASH_PREFIX, '/');
-            if (!is_string($hash) || preg_match('/^' . $prefix . '([0-9a-f]{64})$/', $hash, $m) !== 1) {
-                $this->errors[] = $path . ".hash must be 'sha256:' followed by 64 lowercase hex digits"
-                    . ' (output of bin/generate-token.php; never put the token itself here)';
-                continue;
-            }
-            if (isset($seen[$m[1]])) {
-                $this->errors[] = $path . '.hash duplicates an earlier token';
-                continue;
-            }
-            $seen[$m[1]] = true;
-            $account = $entry['account'] ?? null;
-            if (!is_string($account) || !isset($accounts[$account])) {
-                $this->errors[] = $path . '.account must name an entry in accounts';
-                continue;
-            }
-            $label = $this->optionalString($entry, 'label', $path . '.') ?? '';
-            $tokens[] = new TokenEntry($m[1], $account, $label);
-        }
-
-        return $tokens;
-    }
-
-    /**
-     * auth.oauth for imap_oauth mode (SPEC.md 7, 8).
+     * auth.oauth (SPEC.md 7, 8). Required: OAuth with an IMAP login is the only way to sign in.
      *
      * @param array<mixed> $raw
      */
