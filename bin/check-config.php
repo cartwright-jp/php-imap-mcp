@@ -5,15 +5,19 @@ declare(strict_types=1);
 /*
  * Validates config.php and shows a summary without any secrets (SPEC.md 8).
  *
- *   php bin/check-config.php [path/to/config.php]
+ *   php bin/check-config.php [--no-imap] [path/to/config.php]
  *
+ * It also logs in to each account's IMAP server and finds the Drafts folder (skip with --no-imap).
  * Default path: the PHP_IMAP_MCP_CONFIG environment variable, else config.php next to bin/.
- * Exit code 0 = usable (warnings may be shown), 1 = the server would refuse to start.
+ * Exit code 0 = usable (warnings may be shown), 1 = the server would refuse to start or the IMAP check failed.
  */
 
 use Cartwright\ImapMcp\Auth\IpRange;
 use Cartwright\ImapMcp\Config\ConfigException;
 use Cartwright\ImapMcp\Config\ConfigLoader;
+use Cartwright\ImapMcp\Mail\FolderInfo;
+use Cartwright\ImapMcp\Mail\Imap\ImapMailbox;
+use Cartwright\ImapMcp\Mail\MailException;
 use Cartwright\ImapMcp\Policy\ToolPolicy;
 
 if (PHP_SAPI !== 'cli') {
@@ -22,7 +26,10 @@ if (PHP_SAPI !== 'cli') {
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-$path = $argv[1] ?? ConfigLoader::resolvePath(dirname(__DIR__) . '/config.php');
+$args = array_slice($argv, 1);
+$checkImap = !in_array('--no-imap', $args, true);
+$args = array_values(array_filter($args, static fn (string $a): bool => $a !== '--no-imap'));
+$path = $args[0] ?? ConfigLoader::resolvePath(dirname(__DIR__) . '/config.php');
 echo "Checking {$path}\n\n";
 
 try {
@@ -65,12 +72,43 @@ printf("Lockout: %d failures in %ds -> %ds ban\n", $lockout->maxFailures, $locko
 $enabled = array_filter(array_keys(ToolPolicy::DEFAULTS), static fn (string $t): bool => $config->tools->isEnabled($t));
 printf("Enabled tools: %s\n", implode(', ', $enabled));
 printf("Storage: %s\n", $storage);
-echo "IMAP connection test: not available yet (added with the mail tools in M3)\n";
+
+$imapFailed = false;
+if ($checkImap) {
+    echo "\nIMAP:\n";
+    foreach ($config->accounts as $id => $account) {
+        $mailbox = new ImapMailbox($account, $config->runtime->imapTimeoutSec);
+        try {
+            $folders = $mailbox->listFolders();
+            $drafts = $account->draftsFolder;
+            if ($drafts === null) {
+                $found = array_values(array_filter(
+                    $folders,
+                    static fn (FolderInfo $f): bool => $f->specialUse === 'drafts',
+                ));
+                $drafts = $found[0]->name ?? null;
+            }
+            printf("  - %s: login OK, %d folders, Drafts: %s\n", $id, count($folders), $drafts ?? 'NOT FOUND');
+            if ($drafts === null) {
+                $warnings[] = sprintf('accounts.%s: no Drafts folder found; set folders.drafts in config.php', $id);
+            }
+        } catch (MailException $e) {
+            printf("  - %s: ERROR: %s\n", $id, $e->getMessage());
+            $imapFailed = true;
+        } finally {
+            $mailbox->close();
+        }
+    }
+}
 
 if ($warnings !== []) {
     echo "\nWARNINGS:\n";
     foreach ($warnings as $warning) {
         echo "  - {$warning}\n";
     }
+}
+if ($imapFailed) {
+    echo "\nERROR: the configuration is valid, but the IMAP check failed.\n";
+    exit(1);
 }
 echo "\nOK: the configuration is valid.\n";

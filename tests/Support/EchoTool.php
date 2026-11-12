@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Cartwright\ImapMcp\Tools;
+namespace Cartwright\ImapMcp\Tests\Support;
+
+use Cartwright\ImapMcp\Tools\InvalidToolArguments;
+use Cartwright\ImapMcp\Tools\Tool;
+use Cartwright\ImapMcp\Tools\ToolResult;
 
 /**
- * Dummy tool for checking the protocol layer (M1). Remove when the mail tools arrive (M3).
+ * Minimal tool for protocol-layer tests (it was the M1 connection-test tool).
  */
 final class EchoTool implements Tool
 {

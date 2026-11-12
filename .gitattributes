@@ -5,6 +5,9 @@
 *.jpg binary
 *.zip binary
 
+# Mail fixtures keep their CRLF line endings and 8-bit charsets byte for byte
+*.eml binary
+
 # Not included in the Composer dist archive
 /.github            export-ignore
 /docs               export-ignore

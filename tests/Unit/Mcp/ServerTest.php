@@ -12,8 +12,8 @@ use Cartwright\ImapMcp\Mcp\JsonRpcError;
 use Cartwright\ImapMcp\Mcp\ProtocolVersion;
 use Cartwright\ImapMcp\Mcp\Server;
 use Cartwright\ImapMcp\ServerInfo;
+use Cartwright\ImapMcp\Tests\Support\EchoTool;
 use Cartwright\ImapMcp\Tests\Support\MemoryAuditLogger;
-use Cartwright\ImapMcp\Tools\EchoTool;
 use Cartwright\ImapMcp\Tools\Tool;
 use Cartwright\ImapMcp\Tools\ToolRegistry;
 use Cartwright\ImapMcp\Tools\ToolResult;
@@ -29,7 +29,6 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(Response::class)]
 #[CoversClass(ToolRegistry::class)]
 #[CoversClass(ToolResult::class)]
-#[CoversClass(EchoTool::class)]
 #[CoversClass(ServerInfo::class)]
 final class ServerTest extends TestCase
 {

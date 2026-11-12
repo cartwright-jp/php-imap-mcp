@@ -16,8 +16,6 @@ final class ToolPolicy
      * A tool that is not listed here is never enabled.
      */
     public const DEFAULTS = [
-        // Dummy connection test tool from M1; removed together with EchoTool in M3.
-        'echo' => true,
         'list_folders' => true,
         'search_emails' => true,
         'get_email' => true,

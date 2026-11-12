@@ -11,9 +11,11 @@ use Cartwright\ImapMcp\Auth\Lockout;
 use Cartwright\ImapMcp\Config\Config;
 use Cartwright\ImapMcp\Http\Request;
 use Cartwright\ImapMcp\Http\Response;
-use Cartwright\ImapMcp\Log\JsonLinesAuditLogger;
+use Cartwright\ImapMcp\Mail\MailException;
 use Cartwright\ImapMcp\Mcp\Server;
 use Cartwright\ImapMcp\Policy\ToolPolicy;
+use Cartwright\ImapMcp\Tests\Support\FakeMailbox;
+use Cartwright\ImapMcp\Tests\Support\MailFixtures;
 use Cartwright\ImapMcp\Tests\Support\MemoryAuditLogger;
 use Cartwright\ImapMcp\Tests\Support\TempDirectory;
 use Cartwright\ImapMcp\Tests\Support\TestConfig;
@@ -34,11 +36,13 @@ final class ApplicationTest extends TestCase
 
     private TempDirectory $dir;
     private MemoryAuditLogger $audit;
+    private FakeMailbox $mailbox;
 
     protected function setUp(): void
     {
         $this->dir = new TempDirectory();
         $this->audit = new MemoryAuditLogger();
+        $this->mailbox = new FakeMailbox();
     }
 
     protected function tearDown(): void
@@ -46,20 +50,23 @@ final class ApplicationTest extends TestCase
         $this->dir->remove();
     }
 
-    public function testAuthenticatedToolCallIsServedAndAudited(): void
+    public function testAuthenticatedToolCallIsServedAuditedAndTheMailboxClosed(): void
     {
-        $response = $this->app()->handle($this->toolCall('echo', ['text' => 'secret body text']));
+        $this->mailbox->details['INBOX'][7] = MailFixtures::detail(7, 'secret body text');
+
+        $response = $this->app()->handle($this->toolCall('get_email', ['uid' => 7]));
 
         self::assertSame(200, $response->status);
         self::assertStringContainsString('secret body text', $response->body);
+        self::assertTrue($this->mailbox->closed, 'one connection per request');
         $records = $this->audit->events('tools/call');
         self::assertCount(1, $records);
         $record = $records[0];
         self::assertSame(self::IP, $record['ip']);
         self::assertSame('default', $record['account']);
         self::assertSame('test', $record['token']);
-        self::assertSame('echo', $record['tool']);
-        self::assertSame(['text_length' => 16], $record['arguments']);
+        self::assertSame('get_email', $record['tool']);
+        self::assertSame(['folder' => null, 'uid' => 7, 'mark_as_read' => null], $record['arguments']);
         self::assertSame('ok', $record['result']);
         self::assertIsInt($record['duration_ms']);
         self::assertSame(['name' => 'test', 'version' => '1.0'], $record['client']);
@@ -67,9 +74,29 @@ final class ApplicationTest extends TestCase
         self::assertStringNotContainsString('secret body text', serialize($records), 'bodies are never logged');
     }
 
+    public function testMailToolsAreListedAndWriteToolsAreNot(): void
+    {
+        $list = $this->decode($this->app()->handle($this->modern('tools/list', [])));
+
+        self::assertSame(
+            ['list_folders', 'search_emails', 'get_email'],
+            array_column($list['result']['tools'], 'name'),
+        );
+    }
+
+    public function testMailServerFailureIsAToolErrorAndAudited(): void
+    {
+        $this->mailbox->failWith = MailException::loginFailed();
+
+        $result = $this->decode($this->app()->handle($this->toolCall('list_folders', [])))['result'];
+
+        self::assertTrue($result['isError']);
+        self::assertSame('tool_error', $this->audit->events('tools/call')[0]['result']);
+    }
+
     public function testMissingTokenIs401AndLogged(): void
     {
-        $response = $this->app()->handle($this->toolCall('echo', ['text' => 'x'], null));
+        $response = $this->app()->handle($this->toolCall('list_folders', [], null));
 
         self::assertSame(401, $response->status);
         self::assertSame('Bearer', $response->headers['WWW-Authenticate']);
@@ -77,42 +104,44 @@ final class ApplicationTest extends TestCase
             [['event' => 'auth_failed', 'ip' => self::IP, 'reason' => 'missing']],
             $this->audit->records->getArrayCopy(),
         );
+        self::assertFalse($this->mailbox->closed, 'no mailbox is created before authentication');
     }
 
     public function testWrongTokenIs401(): void
     {
-        self::assertSame(401, $this->app()->handle($this->toolCall('echo', ['text' => 'x'], 'Bearer nope'))->status);
+        self::assertSame(401, $this->app()->handle($this->toolCall('list_folders', [], 'Bearer nope'))->status);
     }
 
     public function testDisallowedIpIs403(): void
     {
-        $response = $this->app()->handle($this->toolCall('echo', ['text' => 'x'], ip: '198.51.100.1'));
+        $response = $this->app()->handle($this->toolCall('list_folders', [], ip: '198.51.100.1'));
 
         self::assertSame(403, $response->status);
     }
 
     public function testDisabledToolIsNotListedAndCannotBeCalled(): void
     {
-        $app = $this->app(TestConfig::config(['tools' => ['echo' => false]]));
+        $app = $this->app(TestConfig::config(['tools' => ['search_emails' => false]]));
 
         $list = $this->decode($app->handle($this->modern('tools/list', [])));
-        self::assertSame([], $list['result']['tools']);
+        self::assertSame(['list_folders', 'get_email'], array_column($list['result']['tools'], 'name'));
 
-        $call = $app->handle($this->toolCall('echo', ['text' => 'x']));
+        $call = $app->handle($this->toolCall('search_emails', []));
         self::assertSame(200, $call->status);
         $error = $this->decode($call)['error'];
         self::assertSame(-32602, $error['code']);
-        self::assertSame('Unknown tool: echo', $error['message']);
+        self::assertSame('Unknown tool: search_emails', $error['message']);
         self::assertSame('unknown_tool', $this->audit->events('tools/call')[0]['result']);
+        self::assertNull($this->mailbox->lastCriteria);
     }
 
     public function testInvalidArgumentsAreAuditedWithoutTheirValues(): void
     {
-        $this->app()->handle($this->toolCall('echo', ['text' => str_repeat('あ', 1001)]));
+        $this->app()->handle($this->toolCall('search_emails', ['from' => 'secret@example.com', 'limit' => 999]));
 
         $record = $this->audit->events('tools/call')[0];
         self::assertSame('invalid_params', $record['result']);
-        self::assertSame(['text_length' => 1001], $record['arguments']);
+        self::assertSame(['folder' => null, 'filters' => ['from'], 'limit' => 999], $record['arguments']);
     }
 
     public function testNonPostIsStillRefusedAfterAuthentication(): void
@@ -126,7 +155,7 @@ final class ApplicationTest extends TestCase
     {
         $config = TestConfig::config([], $this->dir->path . '/var');
 
-        Application::fromConfig($config)->handle($this->toolCall('echo', ['text' => 'x'], 'Bearer wrong'));
+        Application::fromConfig($config)->handle($this->toolCall('list_folders', [], 'Bearer wrong'));
 
         $files = $this->dir->glob('var/logs/audit-*.jsonl');
         self::assertCount(1, $files);
@@ -138,7 +167,14 @@ final class ApplicationTest extends TestCase
     {
         $config ??= TestConfig::config();
 
-        return new Application($config, $this->audit, new Lockout($this->dir->path . '/lockout', $config->lockout));
+        $mailbox = $this->mailbox;
+
+        return new Application(
+            $config,
+            $this->audit,
+            new Lockout($this->dir->path . '/lockout', $config->lockout),
+            static fn (): FakeMailbox => $mailbox,
+        );
     }
 
     /**
