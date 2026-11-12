@@ -52,7 +52,7 @@ final class TestConfig
      *
      * @return array<string, mixed>
      */
-    private static function merge(array $base, array $overrides): array
+    public static function merge(array $base, array $overrides): array
     {
         foreach ($overrides as $key => $value) {
             if ($value === null) {

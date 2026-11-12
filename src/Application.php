@@ -6,8 +6,19 @@ namespace Cartwright\ImapMcp;
 
 use Cartwright\ImapMcp\Auth\Account;
 use Cartwright\ImapMcp\Auth\ConfigAccountResolver;
+use Cartwright\ImapMcp\Auth\BearerAuthenticator;
 use Cartwright\ImapMcp\Auth\Guard;
 use Cartwright\ImapMcp\Auth\Lockout;
+use Cartwright\ImapMcp\Auth\OAuth\AccessTokenAuthenticator;
+use Cartwright\ImapMcp\Auth\OAuth\AuthorizeEndpoint;
+use Cartwright\ImapMcp\Auth\OAuth\CredentialVerifier;
+use Cartwright\ImapMcp\Auth\OAuth\IdStore;
+use Cartwright\ImapMcp\Auth\OAuth\Metadata;
+use Cartwright\ImapMcp\Auth\OAuth\OAuthSettings;
+use Cartwright\ImapMcp\Auth\OAuth\Sealer;
+use Cartwright\ImapMcp\Auth\OAuth\TokenEndpoint;
+use Cartwright\ImapMcp\Auth\OAuth\TokenIssuer;
+use Cartwright\ImapMcp\Auth\StaticTokenAuthenticator;
 use Cartwright\ImapMcp\Auth\TokenAuthenticator;
 use Cartwright\ImapMcp\Config\Config;
 use Cartwright\ImapMcp\Config\ConfigException;
@@ -35,8 +46,15 @@ use Throwable;
  */
 final class Application
 {
+    public const ROUTE_MCP = 'mcp';
+    public const ROUTE_AUTHORIZE = 'authorize';
+    public const ROUTE_TOKEN = 'token';
+    public const ROUTE_RESOURCE_METADATA = 'resource-metadata';
+    public const ROUTE_SERVER_METADATA = 'server-metadata';
+
     /** @var Closure(Account): Mailbox */
     private readonly Closure $mailboxFactory;
+    private readonly IdStore $ids;
 
     /**
      * @param (Closure(Account): Mailbox)|null $mailboxFactory injectable for tests; defaults to IMAP
@@ -46,10 +64,12 @@ final class Application
         private readonly AuditLogger $audit,
         private readonly Lockout $lockout,
         ?Closure $mailboxFactory = null,
+        ?IdStore $ids = null,
     ) {
         $timeout = $config->runtime->imapTimeoutSec;
         $this->mailboxFactory = $mailboxFactory
             ?? static fn (Account $account): Mailbox => new ImapMailbox($account, $timeout);
+        $this->ids = $ids ?? new IdStore($config->runtime->oauthDir());
     }
 
     public static function fromConfig(Config $config): self
@@ -65,17 +85,27 @@ final class Application
 
     public function handle(Request $request): Response
     {
-        $deadline = Deadline::in($this->config->runtime->requestBudgetSec);
         $audit = $this->audit->withContext(['ip' => $request->remoteAddr]);
-        $guard = new Guard($this->config, new TokenAuthenticator($this->config->tokens), $this->lockout, $audit);
-        $token = $guard->check($request);
-        if ($token instanceof Response) {
-            return $token;
+        $oauth = $this->config->oauth;
+        $guard = new Guard($this->config, $this->authenticator(), $this->lockout, $audit);
+        if ($oauth !== null) {
+            $route = self::route($request->path);
+            if ($route !== self::ROUTE_MCP) {
+                return $this->handleOAuth($route, $request, $oauth, $guard, $audit);
+            }
         }
 
-        $account = (new ConfigAccountResolver($this->config->accounts))->resolve($token);
-        // The account id, not the address, so the log holds no personal data beyond the IP.
-        $audit = $audit->withContext(['account' => $account->id, 'token' => $token->label]);
+        $principal = $guard->check($request);
+        if ($principal instanceof Response) {
+            return $principal;
+        }
+        $account = $principal->account;
+        $audit = $audit->withContext(array_filter(
+            // In token mode the account id, not the address, so the log holds no more personal data than needed.
+            ['account' => $account->id, 'token' => $principal->label, 'grant' => $principal->grantId],
+            static fn (?string $v): bool => $v !== null,
+        ));
+        $deadline = Deadline::in($this->config->runtime->requestBudgetSec);
         // Connects only when a tool uses it; disconnects at the end of the request (SPEC.md 4).
         $mailbox = ($this->mailboxFactory)($account);
         try {
@@ -85,6 +115,75 @@ final class Application
         } finally {
             $mailbox->close();
         }
+    }
+
+    /**
+     * Which part of the server a path belongs to (imap_oauth mode). Works wherever index.php is installed:
+     * /mcp/authorize, /authorize and the root's /.well-known/oauth-authorization-server/mcp all match.
+     */
+    public static function route(string $path): string
+    {
+        if (preg_match('#/\.well-known/oauth-protected-resource(/.*)?$#', $path) === 1) {
+            return self::ROUTE_RESOURCE_METADATA;
+        }
+        if (preg_match('#/\.well-known/(oauth-authorization-server|openid-configuration)(/.*)?$#', $path) === 1) {
+            return self::ROUTE_SERVER_METADATA;
+        }
+        $path = rtrim($path, '/');
+        if (str_ends_with($path, '/authorize')) {
+            return self::ROUTE_AUTHORIZE;
+        }
+        if (str_ends_with($path, '/token')) {
+            return self::ROUTE_TOKEN;
+        }
+
+        return self::ROUTE_MCP;
+    }
+
+    private function handleOAuth(
+        string $route,
+        Request $request,
+        OAuthSettings $oauth,
+        Guard $guard,
+        AuditLogger $audit,
+    ): Response {
+        $sealer = new Sealer($oauth->key);
+        $verifier = new CredentialVerifier($this->mailboxFactory);
+        // The login page is opened by the user's browser from anywhere: no IP restriction, its own defences.
+        if ($route === self::ROUTE_AUTHORIZE) {
+            return (new AuthorizeEndpoint($oauth, $sealer, $verifier, $this->lockout, $audit))->handle($request);
+        }
+        // Metadata and the token endpoint are used by the client's servers: IP restriction applies.
+        $refused = $guard->checkSource($request);
+        if ($refused !== null) {
+            return $refused;
+        }
+        if ($route === self::ROUTE_TOKEN) {
+            $issuer = new TokenIssuer($oauth, $sealer);
+
+            return (new TokenEndpoint($oauth, $sealer, $this->ids, $issuer, $verifier, $this->lockout, $audit))
+                ->handle($request);
+        }
+        if ($request->method !== 'GET') {
+            return Response::empty(405, ['Allow' => 'GET']);
+        }
+
+        return Response::json(200, $route === self::ROUTE_RESOURCE_METADATA
+            ? Metadata::protectedResource($oauth)
+            : Metadata::authorizationServer($oauth));
+    }
+
+    private function authenticator(): BearerAuthenticator
+    {
+        $oauth = $this->config->oauth;
+        if ($oauth !== null) {
+            return new AccessTokenAuthenticator($oauth, new Sealer($oauth->key), $this->ids);
+        }
+
+        return new StaticTokenAuthenticator(
+            new TokenAuthenticator($this->config->tokens),
+            new ConfigAccountResolver($this->config->accounts),
+        );
     }
 
     /**

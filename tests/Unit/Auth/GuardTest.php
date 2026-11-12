@@ -8,7 +8,9 @@ use Cartwright\ImapMcp\Auth\AuthenticationFailed;
 use Cartwright\ImapMcp\Auth\Guard;
 use Cartwright\ImapMcp\Auth\Lockout;
 use Cartwright\ImapMcp\Auth\TokenAuthenticator;
-use Cartwright\ImapMcp\Auth\TokenEntry;
+use Cartwright\ImapMcp\Auth\Principal;
+use Cartwright\ImapMcp\Auth\StaticTokenAuthenticator;
+use Cartwright\ImapMcp\Auth\ConfigAccountResolver;
 use Cartwright\ImapMcp\Config\Config;
 use Cartwright\ImapMcp\Http\Request;
 use Cartwright\ImapMcp\Http\Response;
@@ -22,6 +24,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(Lockout::class)]
 #[CoversClass(TokenAuthenticator::class)]
 #[CoversClass(AuthenticationFailed::class)]
+#[CoversClass(StaticTokenAuthenticator::class)]
 final class GuardTest extends TestCase
 {
     private const ALLOWED_IP = '203.0.113.10';
@@ -44,8 +47,9 @@ final class GuardTest extends TestCase
     {
         $result = $this->guard()->check($this->request('Bearer ' . TestConfig::TOKEN));
 
-        self::assertInstanceOf(TokenEntry::class, $result);
-        self::assertSame('default', $result->accountId);
+        self::assertInstanceOf(Principal::class, $result);
+        self::assertSame('default', $result->account->id);
+        self::assertSame('test', $result->label);
         self::assertSame([], $this->audit->records->getArrayCopy());
     }
 
@@ -90,7 +94,7 @@ final class GuardTest extends TestCase
 
         $result = $guard->check($this->request('Bearer ' . TestConfig::TOKEN, '198.51.100.1'));
 
-        self::assertInstanceOf(TokenEntry::class, $result);
+        self::assertInstanceOf(Principal::class, $result);
     }
 
     public function testForeignOriginIs403(): void
@@ -107,7 +111,7 @@ final class GuardTest extends TestCase
     {
         $guard = $this->guard(TestConfig::config(['auth' => ['allowed_origins' => ['https://app.example']]]));
 
-        self::assertInstanceOf(TokenEntry::class, $guard->check(
+        self::assertInstanceOf(Principal::class, $guard->check(
             $this->request('Bearer ' . TestConfig::TOKEN, self::ALLOWED_IP, ['Origin' => 'https://app.example']),
         ));
     }
@@ -136,8 +140,8 @@ final class GuardTest extends TestCase
         $guard->check($this->request('Bearer wrong'));
         $second = $guard->check($this->request('Bearer ' . TestConfig::TOKEN));
 
-        self::assertInstanceOf(TokenEntry::class, $first);
-        self::assertInstanceOf(TokenEntry::class, $second, 'two failures in total, but never two in a row');
+        self::assertInstanceOf(Principal::class, $first);
+        self::assertInstanceOf(Principal::class, $second, 'two failures in total, but never two in a row');
     }
 
     private function guard(?Config $config = null): Guard
@@ -146,7 +150,10 @@ final class GuardTest extends TestCase
 
         return new Guard(
             $config,
-            new TokenAuthenticator($config->tokens),
+            new StaticTokenAuthenticator(
+                new TokenAuthenticator($config->tokens),
+                new ConfigAccountResolver($config->accounts),
+            ),
             new Lockout($this->dir->path, $config->lockout),
             $this->audit,
         );
@@ -164,7 +171,7 @@ final class GuardTest extends TestCase
         return new Request('POST', $headers + ['Content-Type' => 'application/json'], '{}', false, $ip);
     }
 
-    private function refused(Response|TokenEntry $result): Response
+    private function refused(Response|Principal $result): Response
     {
         self::assertInstanceOf(Response::class, $result);
 

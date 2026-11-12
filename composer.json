@@ -15,6 +15,7 @@
         "ext-json": "*",
         "ext-mbstring": "*",
         "ext-openssl": "*",
+        "ext-sodium": "*",
         "egulias/email-validator": "^4.0",
         "symfony/mime": "^6.4",
         "webklex/php-imap": "^6.2"
@@ -49,7 +50,7 @@
         "test:e2e": "bash tests/e2e/smoke.sh",
         "serve": [
             "Composer\\Config::disableProcessTimeout",
-            "php -S 127.0.0.1:18080 -t public"
+            "php -S 127.0.0.1:18080 -t public public/index.php"
         ],
         "stan": "phpstan analyse --memory-limit=1G",
         "cs": "phpcs",

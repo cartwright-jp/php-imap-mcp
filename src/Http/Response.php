@@ -34,6 +34,22 @@ final class Response
     /**
      * @param array<string, string> $headers
      */
+    public static function html(int $status, string $html, array $headers = []): self
+    {
+        return new self($status, ['Content-Type' => 'text/html; charset=utf-8'] + $headers, $html);
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
+    public static function redirect(string $location, array $headers = []): self
+    {
+        return new self(302, ['Location' => $location] + $headers);
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
     public static function empty(int $status, array $headers = []): self
     {
         return new self($status, $headers);

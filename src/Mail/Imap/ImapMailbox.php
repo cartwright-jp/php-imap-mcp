@@ -75,6 +75,11 @@ final class ImapMailbox implements Mailbox
     ) {
     }
 
+    public function checkLogin(): void
+    {
+        $this->connection();
+    }
+
     public function listFolders(): array
     {
         $imap = $this->connection();

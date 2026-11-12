@@ -32,4 +32,12 @@ final class RuntimeSettings
     {
         return $this->storageDir . '/lockout';
     }
+
+    /**
+     * Used codes and refresh tokens, revoked grants (imap_oauth mode).
+     */
+    public function oauthDir(): string
+    {
+        return $this->storageDir . '/oauth';
+    }
 }

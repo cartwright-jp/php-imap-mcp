@@ -30,6 +30,11 @@ final class Lockout
         $this->clock = $clock ?? time(...);
     }
 
+    public function banSec(): int
+    {
+        return $this->settings->banSec;
+    }
+
     /**
      * @return int|null seconds until the ban ends, or null when the IP is not banned
      */

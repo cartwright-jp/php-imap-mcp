@@ -50,6 +50,32 @@ if (!is_dir($storage) && !@mkdir($storage, 0700, true) && !is_dir($storage)) {
     $warnings[] = 'runtime.storage_dir is not writable';
 }
 
+$oauth = $config->oauth;
+printf("Mode: %s\n", $oauth === null ? 'token' : 'imap_oauth');
+if ($oauth !== null) {
+    printf("Resource (MCP URL to register): %s\n", $oauth->resource);
+    printf("Issuer: %s\n", $oauth->issuer());
+    printf("Login page (open to every IP): %s\n", $oauth->authorizationEndpoint());
+    printf("Token endpoint: %s\n", $oauth->tokenEndpoint());
+    printf("Protected resource metadata: %s\n", $oauth->protectedResourceMetadataUrl());
+    printf("IMAP: %s:%d (%s)\n", $oauth->imapHost, $oauth->imapPort, $oauth->imapEncryption);
+    printf("Mail domains that may sign in: %s\n", implode(', ', $oauth->allowedEmailDomains));
+    printf(
+        "Access token: %ds; refresh token: extended by %d days on each use\n",
+        $oauth->accessTtlSec,
+        $oauth->refreshTtlDays,
+    );
+    echo "Clients:\n";
+    foreach ($oauth->clients as $client) {
+        printf(
+            "  - %s (%s, %s): %s\n",
+            $client->id,
+            $client->name,
+            $client->isConfidential() ? 'with secret' : 'public',
+            implode(', ', $client->redirectUris),
+        );
+    }
+}
 echo "Accounts:\n";
 foreach ($config->accounts as $id => $account) {
     printf(
@@ -74,7 +100,10 @@ printf("Enabled tools: %s\n", implode(', ', $enabled));
 printf("Storage: %s\n", $storage);
 
 $imapFailed = false;
-if ($checkImap) {
+if ($checkImap && $oauth !== null) {
+    // No password is stored in this mode; the IMAP login is checked when a user signs in.
+    echo "\nIMAP: not checked here in imap_oauth mode (sign in on the login page to test it)\n";
+} elseif ($checkImap) {
     echo "\nIMAP:\n";
     foreach ($config->accounts as $id => $account) {
         $mailbox = new ImapMailbox($account, $config->runtime->imapTimeoutSec);

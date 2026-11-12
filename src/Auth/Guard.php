@@ -18,16 +18,44 @@ final class Guard
 {
     public function __construct(
         private readonly Config $config,
-        private readonly TokenAuthenticator $authenticator,
+        private readonly BearerAuthenticator $authenticator,
         private readonly Lockout $lockout,
         private readonly AuditLogger $audit,
     ) {
     }
 
     /**
-     * @return Response|TokenEntry the response to send when the request is refused, else the matched token
+     * @return Response|Principal the response to send when the request is refused, else who the request acts for
      */
-    public function check(Request $request): Response|TokenEntry
+    public function check(Request $request): Response|Principal
+    {
+        $refused = $this->checkSource($request);
+        if ($refused !== null) {
+            return $refused;
+        }
+        $ip = $request->remoteAddr;
+
+        try {
+            $principal = $this->authenticator->authenticate($request->header('Authorization'));
+        } catch (AuthenticationFailed $e) {
+            $this->audit->record('auth_failed', ['reason' => $e->reason]);
+            // An expired OAuth token is normal use (the client refreshes it), not an attack.
+            if ($e->reason !== AuthenticationFailed::EXPIRED && $this->lockout->recordFailure($ip)) {
+                $this->audit->record('lockout_started', ['ban_sec' => $this->config->lockout->banSec]);
+            }
+
+            return self::refuse(401, 'Unauthorized', ['WWW-Authenticate' => $this->authenticator->challenge($e)]);
+        }
+        $this->lockout->reset($ip);
+
+        return $principal;
+    }
+
+    /**
+     * Source IP, Origin and lockout only: for endpoints that authenticate in their own way (the OAuth token
+     * endpoint) or need no authentication (metadata).
+     */
+    public function checkSource(Request $request): ?Response
     {
         $ip = $request->remoteAddr;
 
@@ -47,19 +75,7 @@ final class Guard
             return self::refuse(403, 'Too many authentication failures; try again later');
         }
 
-        try {
-            $token = $this->authenticator->authenticate($request->header('Authorization'));
-        } catch (AuthenticationFailed $e) {
-            $this->audit->record('auth_failed', ['reason' => $e->reason]);
-            if ($this->lockout->recordFailure($ip)) {
-                $this->audit->record('lockout_started', ['ban_sec' => $this->config->lockout->banSec]);
-            }
-
-            return self::refuse(401, 'Unauthorized', ['WWW-Authenticate' => 'Bearer']);
-        }
-        $this->lockout->reset($ip);
-
-        return $token;
+        return null;
     }
 
     /**

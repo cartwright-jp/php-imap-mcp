@@ -22,6 +22,10 @@ final class Request
         public readonly bool $bodyTooLarge = false,
         /** REMOTE_ADDR. X-Forwarded-For is ignored because any client can set it. */
         public readonly string $remoteAddr = '',
+        /** URL path without the query string, e.g. /mcp/authorize. */
+        public readonly string $path = '/',
+        /** Raw query string without '?'. */
+        public readonly string $queryString = '',
     ) {
         foreach ($headers as $name => $value) {
             $this->headers[strtolower($name)] = $value;
@@ -62,6 +66,10 @@ final class Request
         $body = $body === false ? '' : $body;
         $tooLarge = strlen($body) > $maxBodyBytes;
         $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+        $uri = $_SERVER['REQUEST_URI'] ?? '/';
+        $uri = is_string($uri) ? $uri : '/';
+        $path = (string) (parse_url($uri, PHP_URL_PATH) ?? '/');
+        $query = (string) (parse_url($uri, PHP_URL_QUERY) ?? '');
 
         return new self(
             is_string($method) ? strtoupper($method) : 'GET',
@@ -69,6 +77,8 @@ final class Request
             $tooLarge ? '' : $body,
             $tooLarge,
             is_string($remoteAddr) ? $remoteAddr : '',
+            $path === '' ? '/' : $path,
+            $query,
         );
     }
 
@@ -80,5 +90,69 @@ final class Request
     public function hasHeader(string $name): bool
     {
         return isset($this->headers[strtolower($name)]);
+    }
+
+    /**
+     * Query parameters. A parameter given more than once, or as an array, is reported as null so callers can
+     * reject it (OAuth: parameters MUST NOT be included more than once).
+     */
+    public function query(string $name): ?string
+    {
+        return self::single($this->queryString, $name);
+    }
+
+    /**
+     * application/x-www-form-urlencoded body parameters, with the same rule as query().
+     */
+    public function form(string $name): ?string
+    {
+        return self::single($this->body, $name);
+    }
+
+    /**
+     * Whether the parameter appears more than once in the query string or form body.
+     */
+    public function isRepeated(string $name, bool $inBody = false): bool
+    {
+        return self::count($inBody ? $this->body : $this->queryString, $name) > 1;
+    }
+
+    public function cookie(string $name): ?string
+    {
+        foreach (explode(';', $this->header('Cookie') ?? '') as $pair) {
+            $parts = explode('=', trim($pair), 2);
+            if (count($parts) === 2 && $parts[0] === $name) {
+                return rawurldecode($parts[1]);
+            }
+        }
+
+        return null;
+    }
+
+    private static function single(string $encoded, string $name): ?string
+    {
+        if (self::count($encoded, $name) !== 1) {
+            return null;
+        }
+        foreach (explode('&', $encoded) as $pair) {
+            $parts = explode('=', $pair, 2);
+            if (urldecode($parts[0]) === $name) {
+                return urldecode($parts[1] ?? '');
+            }
+        }
+
+        return null;
+    }
+
+    private static function count(string $encoded, string $name): int
+    {
+        $count = 0;
+        foreach ($encoded === '' ? [] : explode('&', $encoded) as $pair) {
+            if (urldecode(explode('=', $pair, 2)[0]) === $name) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 }
