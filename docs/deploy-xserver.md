@@ -18,18 +18,56 @@ claude.ai の公式ドキュメント（2026-11-12 に確認）による前提:
 
 ## 1. XServer の準備
 
-1. サーバーパネルの「SSH設定」で SSH を有効にし、公開鍵を登録する（ポートは 10022）
-2. 「PHP Ver.切替」で、MCP を置くドメインの PHP を 8.1 以上にする（8.3 推奨）
-3. 「SSL設定」で、そのドメインに無料独自SSLが入っていることを確かめる
-4. SSH でつなぎ、コマンドラインの PHP を確かめる。Web の PHP とコマンドラインの PHP は別物で、`php` が古い版を指すことがある
+SSH のクライアントは、手元の WSL（Ubuntu）の OpenSSH（`ssh`、`scp`）を使う。手順 2 の `git archive` も WSL で行う。
+
+1. 手元の WSL で鍵を作る（サーバーパネルで鍵を作ってダウンロードする方法もあるが、秘密鍵がブラウザを通らないよう手元で作る）
+
+   ```sh
+   ssh-keygen -t ed25519
+   cat ~/.ssh/id_ed25519.pub   # この1行を次の手順で貼る
+   ```
+
+2. サーバーパネルの「SSH設定」で SSH を有効にし、「公開鍵登録・更新」に公開鍵を貼る
+3. 手元の `~/.ssh/config` に接続先を書く。以下 `ssh xserver` でつながる
+
+   ```
+   Host xserver
+       HostName svXXXXX.xserver.jp
+       Port 10022
+       User ACCOUNT
+       IdentityFile ~/.ssh/id_ed25519
+   ```
+
+4. 「PHP Ver.切替」で、MCP を置くドメインの PHP を 8.1 以上にする（8.3 推奨）
+5. 「SSL設定」で、そのドメインに無料独自SSLが入っていることを確かめる
+6. `ssh xserver` でつなぎ、コマンドラインの PHP を確かめる。Web の PHP とコマンドラインの PHP は別物で、`php` が古い版を指すことがある
 
    ```sh
    php -v
-   ls /usr/bin/php*        # 版ごとのコマンド（php8.3 など）があればそれを使う
-   php -m | grep -i sodium # sodium 拡張が必要
+   ls /usr/bin/php*        # 版ごとのコマンド（php8.3 など）を探す
    ```
 
-   以下、ここで決めた PHP のコマンドを `php` と書く。
+   `php` が 8.1 より古ければ、`~/bin` に新しい版へのリンクを作り、先に見つかるようにする:
+
+   ```sh
+   mkdir -p ~/bin
+   ln -s /usr/bin/php8.3 ~/bin/php   # 上で見つかった版
+   echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bash_profile
+   source ~/.bash_profile
+   php -v                             # 8.3 になっていること
+   php -m | grep -i sodium            # sodium 拡張が必要
+   ```
+
+7. Composer を `~/bin` に入れる（[公式の手順](https://getcomposer.org/download/)。インストーラーの検証用ハッシュは公式ページの最新の値を使う）
+
+   ```sh
+   cd ~/bin
+   php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+   php -r "if (hash_file('sha384', 'composer-setup.php') === '公式ページのハッシュ') { echo 'Installer verified'.PHP_EOL; } else { echo 'Installer corrupt'.PHP_EOL; unlink('composer-setup.php'); exit(1); }"
+   php composer-setup.php --filename=composer
+   rm composer-setup.php
+   composer --version
+   ```
 
 ## 2. ファイルを置く
 
@@ -38,24 +76,21 @@ claude.ai の公式ドキュメント（2026-11-12 に確認）による前提:
 ```sh
 # 手元の WSL で、リポジトリの直下から
 git archive --format=tar.gz -o /tmp/php-imap-mcp.tar.gz main
-scp -P 10022 /tmp/php-imap-mcp.tar.gz ACCOUNT@svXXXXX.xserver.jp:~/
+scp /tmp/php-imap-mcp.tar.gz xserver:~/
 ```
 
 ```sh
 # XServer で
-mkdir ~/php-imap-mcp && tar xzf ~/php-imap-mcp.tar.gz -C ~/php-imap-mcp && rm ~/php-imap-mcp.tar.gz
+mkdir -p ~/php-imap-mcp && tar xzf ~/php-imap-mcp.tar.gz -C ~/php-imap-mcp && rm ~/php-imap-mcp.tar.gz
 cd ~/php-imap-mcp
-```
-
-依存を入れる。XServer に Composer がなければ、`~/bin` に入れる（[公式の手順](https://getcomposer.org/download/)）。
-
-```sh
 composer install --no-dev --optimize-autoloader
 ```
 
-Composer が使えないときは、手元の WSL で `composer install --no-dev` をした `vendor/` ごと送ってもよい（`composer.lock` は PHP 8.1 で解決してあるので、XServer の PHP 8.1 以上で動く）。
+`composer install` が sodium や PHP の版で止まったら、手順 1 の 6 に戻ってコマンドラインの PHP を確かめる。
 
 本体は `~/php-imap-mcp/`（公開ディレクトリの外）に置く。公開ディレクトリに置くのは、手順 4 の2ファイルだけ。
+
+更新するときは、同じように送って展開し（`config.php` と `var/` は上書きされない）、`composer install --no-dev --optimize-autoloader` をやり直す。`public/` の2ファイルが変わったときは、手順 4 もやり直す（`index.php` の `APP_ROOT` を書き直すのを忘れない）。
 
 ## 3. 設定を書く
 
@@ -158,7 +193,7 @@ curl -si -X POST "$u/mcp/" -d '{}' | head -1   # HTTP/1.1 403
 
 **XServer**
 
-- [ ] コマンドラインの PHP の版と、sodium 拡張の有無（手順 1）
+- [ ] コマンドラインの PHP の版と、sodium 拡張の有無、Composer が入るか（手順 1）
 - [ ] Web の PHP で sodium が使えること（手順 6 の MCP 本体が `500` でなく `401` になれば使えている）
 - [ ] `public/.htaccess` の `RewriteRule` が動くこと（手順 6 の `/mcp/.well-known/…` が JSON を返す）
 - [ ] Authorization ヘッダーが PHP に届くこと（手順 7 で接続した後、ツールが動けば届いている）
