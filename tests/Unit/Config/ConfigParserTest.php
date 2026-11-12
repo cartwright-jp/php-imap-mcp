@@ -7,7 +7,6 @@ namespace Cartwright\ImapMcp\Tests\Unit\Config;
 use Cartwright\ImapMcp\Auth\Account;
 use Cartwright\ImapMcp\Auth\IpRange;
 use Cartwright\ImapMcp\Auth\LockoutSettings;
-use Cartwright\ImapMcp\Auth\TokenEntry;
 use Cartwright\ImapMcp\Config\Config;
 use Cartwright\ImapMcp\Config\ConfigException;
 use Cartwright\ImapMcp\Config\ConfigParser;
@@ -19,13 +18,15 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * The sections besides auth.oauth (that one is in OAuthConfigTest).
+ */
 #[CoversClass(ConfigParser::class)]
 #[CoversClass(Config::class)]
 #[CoversClass(ConfigException::class)]
 #[CoversClass(Account::class)]
 #[CoversClass(IpRange::class)]
 #[CoversClass(LockoutSettings::class)]
-#[CoversClass(TokenEntry::class)]
 #[CoversClass(RuntimeSettings::class)]
 #[CoversClass(MailPolicy::class)]
 #[CoversClass(ToolPolicy::class)]
@@ -34,15 +35,6 @@ final class ConfigParserTest extends TestCase
     public function testMinimalConfigGetsSecureDefaults(): void
     {
         $config = ConfigParser::parse(TestConfig::raw(['runtime' => null]), '/home/u/php-imap-mcp');
-
-        $account = $config->accounts['default'];
-        self::assertSame('test@example.com', $account->email);
-        self::assertSame('test-password', $account->password());
-        self::assertSame(3993, $account->imapPort);
-        self::assertSame('ssl', $account->imapEncryption);
-        self::assertNull($account->draftsFolder);
-        self::assertSame('default', $config->tokens[0]->accountId);
-        self::assertSame(hash('sha256', TestConfig::TOKEN), $config->tokens[0]->sha256);
 
         self::assertSame([10, 600, 900], [
             $config->lockout->maxFailures,
@@ -59,19 +51,17 @@ final class ConfigParserTest extends TestCase
         self::assertSame('Asia/Tokyo', $config->runtime->timezone->getName());
         self::assertSame('/home/u/php-imap-mcp/var', $config->runtime->storageDir);
         self::assertSame('/home/u/php-imap-mcp/var/logs', $config->runtime->auditLogDir());
-        self::assertSame([], $config->warnings);
+        self::assertSame('/home/u/php-imap-mcp/var/oauth', $config->runtime->oauthDir());
+        self::assertSame(
+            ['auth.oauth.clients[1] has no secret_hash: it is a public client (PKCE only)'],
+            $config->warnings,
+        );
     }
 
     public function testFullExampleValues(): void
     {
         $config = TestConfig::config([
-            'accounts' => ['default' => [
-                'from_name' => '山田 太郎',
-                'folders' => ['drafts' => 'Drafts', 'sent' => null],
-                'imap' => ['encryption' => 'starttls', 'port' => 143],
-            ]],
             'auth' => [
-                'mode' => 'token',
                 'allowed_origins' => ['https://claude.ai'],
                 'lockout' => ['max_failures' => 5, 'window_sec' => 60, 'ban_sec' => 120],
             ],
@@ -80,9 +70,6 @@ final class ConfigParserTest extends TestCase
             'runtime' => ['timezone' => 'UTC', 'storage_dir' => 'data', 'log_level' => 'debug'],
         ]);
 
-        self::assertSame('山田 太郎', $config->accounts['default']->fromName);
-        self::assertSame('Drafts', $config->accounts['default']->draftsFolder);
-        self::assertSame('starttls', $config->accounts['default']->imapEncryption);
         self::assertSame(['https://claude.ai'], $config->allowedOrigins);
         self::assertSame(5, $config->lockout->maxFailures);
         self::assertTrue($config->tools->isEnabled('set_flags'));
@@ -108,15 +95,14 @@ final class ConfigParserTest extends TestCase
         $config = TestConfig::config(['auth' => ['allowed_ips' => []]]);
 
         self::assertTrue($config->isIpAllowed('198.51.100.1'));
-        self::assertCount(1, $config->warnings);
-        self::assertStringContainsString('allowed_ips', $config->warnings[0]);
+        self::assertStringContainsString('auth.allowed_ips is empty', implode("\n", $config->warnings));
     }
 
     public function testPasswordIsHiddenFromDumps(): void
     {
-        $dump = print_r(TestConfig::config()->accounts['default'], true);
+        $dump = print_r(TestConfig::config()->oauth->account(TestConfig::EMAIL, 'secret-password'), true);
 
-        self::assertStringNotContainsString('test-password', $dump);
+        self::assertStringNotContainsString('secret-password', $dump);
     }
 
     /**
@@ -124,49 +110,10 @@ final class ConfigParserTest extends TestCase
      */
     public static function invalidConfigs(): iterable
     {
-        yield 'no tokens' => [['auth' => ['tokens' => []]], 'auth.tokens must be a non-empty list'];
-        yield 'tokens missing' => [['auth' => ['tokens' => null]], 'auth.tokens must be a non-empty list'];
-        yield 'placeholder hash' => [
-            ['auth' => ['tokens' => [['hash' => 'sha256:...', 'account' => 'default']]]],
-            'auth.tokens[0].hash',
-        ];
-        yield 'plain token instead of hash' => [
-            ['auth' => ['tokens' => [['hash' => TestConfig::TOKEN, 'account' => 'default']]]],
-            'auth.tokens[0].hash',
-        ];
-        yield 'uppercase hash' => [
-            ['auth' => ['tokens' => [['hash' => strtoupper(TokenEntry::hashOf('x')), 'account' => 'default']]]],
-            'auth.tokens[0].hash',
-        ];
-        yield 'duplicate hash' => [
-            ['auth' => ['tokens' => [
-                ['hash' => TokenEntry::hashOf('x'), 'account' => 'default'],
-                ['hash' => TokenEntry::hashOf('x'), 'account' => 'default'],
-            ]]],
-            'auth.tokens[1].hash duplicates',
-        ];
-        yield 'token for unknown account' => [
-            ['auth' => ['tokens' => [['hash' => TokenEntry::hashOf('x'), 'account' => 'other']]]],
-            'auth.tokens[0].account',
-        ];
-        yield 'no accounts' => [['accounts' => []], 'accounts must be a non-empty array'];
-        yield 'bad email' => [['accounts' => ['default' => ['email' => 'not-an-email']]], 'accounts.default.email'];
-        yield 'empty password' => [['accounts' => ['default' => ['password' => '']]], 'accounts.default.password'];
-        yield 'no host' => [['accounts' => ['default' => ['imap' => ['host' => null]]]], 'accounts.default.imap.host'];
-        yield 'bad port' => [['accounts' => ['default' => ['imap' => ['port' => 0]]]], 'accounts.default.imap.port'];
-        yield 'port as string' => [
-            ['accounts' => ['default' => ['imap' => ['port' => '993']]]],
-            'accounts.default.imap.port',
-        ];
-        yield 'plaintext imap' => [
-            ['accounts' => ['default' => ['imap' => ['encryption' => 'none']]]],
-            'plaintext is not supported',
-        ];
-        yield 'bad account id' => [
-            ['accounts' => ['bad id!' => TestConfig::raw()['accounts']['default']]],
-            'account ids must be',
-        ];
-        yield 'oauth mode not yet' => [['auth' => ['mode' => 'imap_oauth']], 'auth.mode'];
+        yield 'no oauth section' => [['auth' => ['oauth' => null]], 'auth.oauth.resource'];
+        yield 'removed: accounts' => [['accounts' => ['default' => ['password' => 'x']]], 'accounts is no longer used'];
+        yield 'removed: static tokens' => [['auth' => ['tokens' => []]], 'auth.tokens is no longer used'];
+        yield 'removed: mode' => [['auth' => ['mode' => 'token']], 'auth.mode is no longer used'];
         yield 'bad ip' => [['auth' => ['allowed_ips' => ['203.0.113.0/40']]], 'auth.allowed_ips[0]'];
         yield 'ips not a list' => [['auth' => ['allowed_ips' => '203.0.113.0/24']], 'auth.allowed_ips must be'];
         yield 'origin with path' => [['auth' => ['allowed_origins' => ['https://claude.ai/']]], 'allowed_origins[0]'];
@@ -184,10 +131,6 @@ final class ConfigParserTest extends TestCase
             'unknown key auth.allowed_ip',
         ];
         yield 'unknown top-level key' => [['smtp' => ['host' => 'x']], 'unknown key smtp'];
-        yield 'unknown account key' => [
-            ['accounts' => ['default' => ['passwd' => 'x']]],
-            'unknown key accounts.default.passwd',
-        ];
     }
 
     /**
@@ -208,13 +151,14 @@ final class ConfigParserTest extends TestCase
     {
         try {
             TestConfig::config([
-                'accounts' => ['default' => ['email' => 'secret-pass-like-email', 'password' => ['nested']]],
-                'auth' => ['tokens' => [['hash' => TestConfig::TOKEN, 'account' => 'default']]],
+                'accounts' => ['default' => ['password' => 'old-secret-password']],
+                'auth' => ['oauth' => ['key' => 'secret-key-value', 'resource' => 'secret-resource-value']],
             ]);
             self::fail('Expected ConfigException');
         } catch (ConfigException $e) {
-            self::assertStringNotContainsString(TestConfig::TOKEN, $e->getMessage());
-            self::assertStringNotContainsString('secret-pass-like-email', $e->getMessage());
+            self::assertStringNotContainsString('old-secret-password', $e->getMessage());
+            self::assertStringNotContainsString('secret-key-value', $e->getMessage());
+            self::assertStringNotContainsString('secret-resource-value', $e->getMessage());
         }
     }
 

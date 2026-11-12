@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cartwright\ImapMcp\Tests\Unit;
 
 use Cartwright\ImapMcp\Application;
-use Cartwright\ImapMcp\Auth\ConfigAccountResolver;
 use Cartwright\ImapMcp\Auth\Guard;
 use Cartwright\ImapMcp\Auth\Lockout;
 use Cartwright\ImapMcp\Config\Config;
@@ -27,7 +26,6 @@ use PHPUnit\Framework\TestCase;
  */
 #[CoversClass(Application::class)]
 #[CoversClass(Guard::class)]
-#[CoversClass(ConfigAccountResolver::class)]
 #[CoversClass(ToolPolicy::class)]
 #[CoversClass(Server::class)]
 final class ApplicationTest extends TestCase
@@ -63,8 +61,9 @@ final class ApplicationTest extends TestCase
         self::assertCount(1, $records);
         $record = $records[0];
         self::assertSame(self::IP, $record['ip']);
-        self::assertSame('default', $record['account']);
-        self::assertSame('test', $record['token']);
+        self::assertSame(TestConfig::EMAIL, $record['account']);
+        self::assertSame(TestConfig::CLIENT, $record['oauth_client']);
+        self::assertSame(TestConfig::GRANT, $record['grant']);
         self::assertSame('get_email', $record['tool']);
         self::assertSame(['folder' => null, 'uid' => 7, 'mark_as_read' => null], $record['arguments']);
         self::assertSame('ok', $record['result']);
@@ -99,7 +98,7 @@ final class ApplicationTest extends TestCase
         $response = $this->app()->handle($this->toolCall('list_folders', [], null));
 
         self::assertSame(401, $response->status);
-        self::assertSame('Bearer', $response->headers['WWW-Authenticate']);
+        self::assertStringStartsWith('Bearer resource_metadata=', $response->headers['WWW-Authenticate']);
         self::assertSame(
             [['event' => 'auth_failed', 'ip' => self::IP, 'reason' => 'missing']],
             $this->audit->records->getArrayCopy(),
@@ -146,7 +145,8 @@ final class ApplicationTest extends TestCase
 
     public function testNonPostIsStillRefusedAfterAuthentication(): void
     {
-        $request = new Request('GET', ['Authorization' => 'Bearer ' . TestConfig::TOKEN], '', false, self::IP);
+        $headers = ['Authorization' => 'Bearer ' . TestConfig::accessToken()];
+        $request = new Request('GET', $headers, '', false, self::IP, '/mcp/');
 
         self::assertSame(405, $this->app()->handle($request)->status);
     }
@@ -183,7 +183,7 @@ final class ApplicationTest extends TestCase
     private function toolCall(
         string $tool,
         array $arguments,
-        ?string $authorization = 'Bearer ' . TestConfig::TOKEN,
+        ?string $authorization = '',
         string $ip = self::IP,
     ): Request {
         return $this->modern('tools/call', ['name' => $tool, 'arguments' => $arguments], $authorization, $ip);
@@ -195,7 +195,7 @@ final class ApplicationTest extends TestCase
     private function modern(
         string $method,
         array $params,
-        ?string $authorization = 'Bearer ' . TestConfig::TOKEN,
+        ?string $authorization = '',
         string $ip = self::IP,
     ): Request {
         $headers = [
@@ -205,6 +205,10 @@ final class ApplicationTest extends TestCase
         ];
         if (isset($params['name']) && is_string($params['name'])) {
             $headers['Mcp-Name'] = $params['name'];
+        }
+        // '' = a valid access token, null = no Authorization header.
+        if ($authorization === '') {
+            $authorization = 'Bearer ' . TestConfig::accessToken();
         }
         if ($authorization !== null) {
             $headers['Authorization'] = $authorization;
@@ -217,7 +221,7 @@ final class ApplicationTest extends TestCase
         $payload = ['jsonrpc' => '2.0', 'id' => 1, 'method' => $method, 'params' => $params];
         $body = json_encode($payload, JSON_THROW_ON_ERROR);
 
-        return new Request('POST', $headers, $body, false, $ip);
+        return new Request('POST', $headers, $body, false, $ip, '/mcp/');
     }
 
     /**

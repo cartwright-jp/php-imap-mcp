@@ -25,7 +25,7 @@ use Cartwright\ImapMcp\Http\Response;
 use Cartwright\ImapMcp\Mail\MailException;
 use Cartwright\ImapMcp\Tests\Support\FakeMailbox;
 use Cartwright\ImapMcp\Tests\Support\MemoryAuditLogger;
-use Cartwright\ImapMcp\Tests\Support\OAuthTestConfig;
+use Cartwright\ImapMcp\Tests\Support\TestConfig;
 use Cartwright\ImapMcp\Tests\Support\TempDirectory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -55,7 +55,7 @@ final class OAuthFlowTest extends TestCase
 
     private TempDirectory $dir;
     private MemoryAuditLogger $audit;
-    private string $password = OAuthTestConfig::PASSWORD;
+    private string $password = TestConfig::PASSWORD;
     private bool $imapDown = false;
     /** @var list<Account> accounts the mailbox factory was called with */
     private array $accounts = [];
@@ -75,7 +75,7 @@ final class OAuthFlowTest extends TestCase
 
     public function testLoginTokenExchangeAndMcpCall(): void
     {
-        $pkce = OAuthTestConfig::pkce();
+        $pkce = TestConfig::pkce();
         $page = $this->app()->handle($this->get('/mcp/authorize', $this->authorizeQuery($pkce)));
 
         self::assertSame(200, $page->status);
@@ -91,13 +91,13 @@ final class OAuthFlowTest extends TestCase
         $redirect = $this->submitLogin($page);
         self::assertSame(302, $redirect->status);
         $location = $redirect->headers['Location'];
-        self::assertStringStartsWith(OAuthTestConfig::REDIRECT . '?', $location);
+        self::assertStringStartsWith(TestConfig::REDIRECT . '?', $location);
         parse_str((string) parse_url($location, PHP_URL_QUERY), $params);
         self::assertSame('xyz', $params['state']);
-        self::assertSame(OAuthTestConfig::ISSUER, $params['iss'], 'RFC 9207');
+        self::assertSame(TestConfig::ISSUER, $params['iss'], 'RFC 9207');
         self::assertIsString($params['code']);
         self::assertStringStartsWith('pim_ac_', $params['code']);
-        self::assertStringNotContainsString(OAuthTestConfig::PASSWORD, $location);
+        self::assertStringNotContainsString(TestConfig::PASSWORD, $location);
         self::assertStringContainsString('Max-Age=0', $redirect->headers['Set-Cookie'], 'the login cookie is cleared');
 
         $tokens = $this->exchange($params['code'], $pkce['verifier']);
@@ -113,14 +113,14 @@ final class OAuthFlowTest extends TestCase
         self::assertSame(200, $list->status, $list->body);
         self::assertStringContainsString('"name":"search_emails"', $list->body);
         $account = $this->firstAccount();
-        self::assertSame(OAuthTestConfig::EMAIL, $account->email);
-        self::assertSame(OAuthTestConfig::PASSWORD, $account->password());
+        self::assertSame(TestConfig::EMAIL, $account->email);
+        self::assertSame(TestConfig::PASSWORD, $account->password());
         self::assertSame('imap.example.com', $account->imapHost);
 
         self::assertCount(1, $this->audit->events('oauth_login'));
         self::assertCount(1, $this->audit->events('oauth_token'));
         self::assertStringNotContainsString(
-            OAuthTestConfig::PASSWORD,
+            TestConfig::PASSWORD,
             serialize($this->audit->records->getArrayCopy()),
             'passwords never reach the audit log',
         );
@@ -128,13 +128,13 @@ final class OAuthFlowTest extends TestCase
 
     public function testPublicClientUsesPkceWithoutSecret(): void
     {
-        $pkce = OAuthTestConfig::pkce();
-        $query = ['client_id' => OAuthTestConfig::PUBLIC_CLIENT, 'redirect_uri' => OAuthTestConfig::PUBLIC_REDIRECT];
+        $pkce = TestConfig::pkce();
+        $query = ['client_id' => TestConfig::PUBLIC_CLIENT, 'redirect_uri' => TestConfig::PUBLIC_REDIRECT];
         $code = $this->loginForCode($pkce, $query);
 
         $tokens = $this->exchange($code, $pkce['verifier'], [
-            'client_id' => OAuthTestConfig::PUBLIC_CLIENT,
-            'redirect_uri' => OAuthTestConfig::PUBLIC_REDIRECT,
+            'client_id' => TestConfig::PUBLIC_CLIENT,
+            'redirect_uri' => TestConfig::PUBLIC_REDIRECT,
         ], null);
 
         self::assertSame(200, $tokens['status'], json_encode($tokens['body'], JSON_THROW_ON_ERROR));
@@ -212,7 +212,7 @@ final class OAuthFlowTest extends TestCase
 
     public function testCodeWorksOnce(): void
     {
-        $pkce = OAuthTestConfig::pkce();
+        $pkce = TestConfig::pkce();
         $code = $this->loginForCode($pkce);
 
         self::assertSame(200, $this->exchange($code, $pkce['verifier'])['status']);
@@ -221,17 +221,17 @@ final class OAuthFlowTest extends TestCase
 
     public function testWrongVerifierIsRejectedWithoutBurningTheCode(): void
     {
-        $pkce = OAuthTestConfig::pkce();
+        $pkce = TestConfig::pkce();
         $code = $this->loginForCode($pkce);
 
-        self::assertSame('invalid_grant', $this->exchange($code, OAuthTestConfig::pkce()['verifier'])['body']['error']);
+        self::assertSame('invalid_grant', $this->exchange($code, TestConfig::pkce()['verifier'])['body']['error']);
         self::assertSame('invalid_request', $this->exchange($code, 'short')['body']['error']);
         self::assertSame(200, $this->exchange($code, $pkce['verifier'])['status']);
     }
 
     public function testCodeIsBoundToRedirectUriClientAndResource(): void
     {
-        $pkce = OAuthTestConfig::pkce();
+        $pkce = TestConfig::pkce();
         $code = $this->loginForCode($pkce);
 
         self::assertSame(
@@ -240,8 +240,8 @@ final class OAuthFlowTest extends TestCase
                 ['body']['error'],
         );
         self::assertSame('invalid_grant', $this->exchange($code, $pkce['verifier'], [
-            'client_id' => OAuthTestConfig::PUBLIC_CLIENT,
-            'redirect_uri' => OAuthTestConfig::REDIRECT,
+            'client_id' => TestConfig::PUBLIC_CLIENT,
+            'redirect_uri' => TestConfig::REDIRECT,
         ], null)['body']['error'], 'another client cannot redeem it');
         self::assertSame(
             'invalid_target',
@@ -253,14 +253,14 @@ final class OAuthFlowTest extends TestCase
 
     public function testConfidentialClientMustAuthenticate(): void
     {
-        $pkce = OAuthTestConfig::pkce();
+        $pkce = TestConfig::pkce();
         $code = $this->loginForCode($pkce);
 
         $wrong = $this->exchange($code, $pkce['verifier'], [], 'wrong-secret');
-        $none = $this->exchange($code, $pkce['verifier'], ['client_id' => OAuthTestConfig::CLIENT], null);
+        $none = $this->exchange($code, $pkce['verifier'], ['client_id' => TestConfig::CLIENT], null);
         $post = $this->exchange($code, $pkce['verifier'], [
-            'client_id' => OAuthTestConfig::CLIENT,
-            'client_secret' => OAuthTestConfig::CLIENT_SECRET,
+            'client_id' => TestConfig::CLIENT,
+            'client_secret' => TestConfig::CLIENT_SECRET,
         ], null);
 
         self::assertSame(401, $wrong['status']);
@@ -279,7 +279,7 @@ final class OAuthFlowTest extends TestCase
     {
         yield 'unknown client' => [['client_id' => 'evil']];
         yield 'unregistered redirect URI' => [['redirect_uri' => 'https://evil.example/callback']];
-        yield 'redirect URI with extra path' => [['redirect_uri' => OAuthTestConfig::REDIRECT . '/x']];
+        yield 'redirect URI with extra path' => [['redirect_uri' => TestConfig::REDIRECT . '/x']];
     }
 
     /**
@@ -288,7 +288,7 @@ final class OAuthFlowTest extends TestCase
     #[DataProvider('unsafeToRedirect')]
     public function testErrorsBeforeTheRedirectUriIsTrustedAreShownNotRedirected(array $override): void
     {
-        $query = $override + $this->authorizeQuery(OAuthTestConfig::pkce());
+        $query = $override + $this->authorizeQuery(TestConfig::pkce());
         $response = $this->app()->handle($this->get('/mcp/authorize', $query));
 
         self::assertSame(400, $response->status);
@@ -314,7 +314,7 @@ final class OAuthFlowTest extends TestCase
     public function testInvalidRequestsAreRedirectedWithAnError(array $override, string $error): void
     {
         $query = array_filter(
-            $override + $this->authorizeQuery(OAuthTestConfig::pkce()),
+            $override + $this->authorizeQuery(TestConfig::pkce()),
             static fn (?string $v): bool => $v !== null,
         );
 
@@ -324,12 +324,12 @@ final class OAuthFlowTest extends TestCase
         parse_str((string) parse_url($response->headers['Location'], PHP_URL_QUERY), $params);
         self::assertSame($error, $params['error']);
         self::assertSame('xyz', $params['state']);
-        self::assertSame(OAuthTestConfig::ISSUER, $params['iss']);
+        self::assertSame(TestConfig::ISSUER, $params['iss']);
     }
 
     public function testRepeatedParametersAreRejected(): void
     {
-        $query = http_build_query($this->authorizeQuery(OAuthTestConfig::pkce())) . '&client_id=claude';
+        $query = http_build_query($this->authorizeQuery(TestConfig::pkce())) . '&client_id=claude';
 
         self::assertSame(400, $this->app()->handle($this->get('/mcp/authorize', [], $query))->status);
     }
@@ -338,33 +338,33 @@ final class OAuthFlowTest extends TestCase
 
     public function testWrongPasswordShowsTheFormAgainAndRepeatedFailuresLockOut(): void
     {
-        $config = OAuthTestConfig::config(['auth' => ['lockout' => ['max_failures' => 3]]], $this->dir->path . '/var');
+        $config = TestConfig::config(['auth' => ['lockout' => ['max_failures' => 3]]], $this->dir->path . '/var');
         $page = $this->app($config)->handle(
-            $this->get('/mcp/authorize', $this->authorizeQuery(OAuthTestConfig::pkce())),
+            $this->get('/mcp/authorize', $this->authorizeQuery(TestConfig::pkce())),
         );
 
         $failed = $this->submitLogin($page, 'wrong-password', $config);
         self::assertSame(400, $failed->status);
         self::assertStringContainsString('メールアドレスまたはパスワードが正しくありません', $failed->body);
         self::assertStringContainsString(
-            'value="' . OAuthTestConfig::EMAIL . '"',
+            'value="' . TestConfig::EMAIL . '"',
             $failed->body,
             'the address is kept',
         );
         $this->submitLogin($page, 'wrong-password', $config);
         $this->submitLogin($page, 'wrong-password', $config);
 
-        $locked = $this->submitLogin($page, OAuthTestConfig::PASSWORD, $config);
+        $locked = $this->submitLogin($page, TestConfig::PASSWORD, $config);
         self::assertSame(429, $locked->status, 'even the right password waits');
         self::assertCount(3, $this->audit->events('oauth_login_failed'));
     }
 
     public function testOnlyAllowedMailDomainsMaySignIn(): void
     {
-        $page = $this->app()->handle($this->get('/mcp/authorize', $this->authorizeQuery(OAuthTestConfig::pkce())));
+        $page = $this->app()->handle($this->get('/mcp/authorize', $this->authorizeQuery(TestConfig::pkce())));
         $this->accounts = [];
 
-        $response = $this->submitLogin($page, OAuthTestConfig::PASSWORD, null, 'someone@other.example');
+        $response = $this->submitLogin($page, TestConfig::PASSWORD, null, 'someone@other.example');
 
         self::assertSame(400, $response->status);
         self::assertStringContainsString('このメールアドレスではログインできません', $response->body);
@@ -373,7 +373,7 @@ final class OAuthFlowTest extends TestCase
 
     public function testLoginWithoutTheCookieOrFromAnotherOriginIsRefused(): void
     {
-        $page = $this->app()->handle($this->get('/mcp/authorize', $this->authorizeQuery(OAuthTestConfig::pkce())));
+        $page = $this->app()->handle($this->get('/mcp/authorize', $this->authorizeQuery(TestConfig::pkce())));
 
         self::assertSame(403, $this->submitLogin($page, cookie: false)->status);
         self::assertSame(403, $this->submitLogin($page, origin: 'https://evil.example')->status);
@@ -384,8 +384,8 @@ final class OAuthFlowTest extends TestCase
     {
         $response = $this->app()->handle($this->post('/mcp/authorize', [
             'request' => 'pim_rq_forged',
-            'email' => OAuthTestConfig::EMAIL,
-            'password' => OAuthTestConfig::PASSWORD,
+            'email' => TestConfig::EMAIL,
+            'password' => TestConfig::PASSWORD,
         ], ['Cookie' => 'pim_login=x'], self::BROWSER_IP));
 
         self::assertSame(400, $response->status);
@@ -410,14 +410,14 @@ final class OAuthFlowTest extends TestCase
     {
         $sealer = new Sealer(str_repeat('k', 32));
         $claims = [
-            'jti' => 'j', 'gid' => 'g', 'sub' => OAuthTestConfig::EMAIL, 'pwd' => 'p', 'cid' => OAuthTestConfig::CLIENT,
+            'jti' => 'j', 'gid' => 'g', 'sub' => TestConfig::EMAIL, 'pwd' => 'p', 'cid' => TestConfig::CLIENT,
             'aud' => 'https://other.example/mcp/', 'scope' => 'mail', 'exp' => time() + 60,
         ];
 
         $otherAudience = $this->app()->handle($this->mcp($sealer->seal(Sealer::ACCESS_TOKEN, $claims)));
         $expired = $this->app()->handle($this->mcp($sealer->seal(
             Sealer::ACCESS_TOKEN,
-            ['aud' => OAuthTestConfig::RESOURCE, 'exp' => time() - 1] + $claims,
+            ['aud' => TestConfig::RESOURCE, 'exp' => time() - 1] + $claims,
         )));
         $refreshAsAccess = $this->app()->handle($this->mcp($this->tokens()['refresh_token']));
 
@@ -434,18 +434,18 @@ final class OAuthFlowTest extends TestCase
     {
         $sealer = new Sealer(str_repeat('k', 32));
         $past = time() - 1;
-        $pkce = OAuthTestConfig::pkce();
+        $pkce = TestConfig::pkce();
         $base = [
-            'jti' => 'j', 'gid' => 'g', 'sub' => OAuthTestConfig::EMAIL, 'pwd' => OAuthTestConfig::PASSWORD,
-            'cid' => OAuthTestConfig::CLIENT, 'aud' => OAuthTestConfig::RESOURCE, 'scope' => 'mail', 'exp' => $past,
+            'jti' => 'j', 'gid' => 'g', 'sub' => TestConfig::EMAIL, 'pwd' => TestConfig::PASSWORD,
+            'cid' => TestConfig::CLIENT, 'aud' => TestConfig::RESOURCE, 'scope' => 'mail', 'exp' => $past,
         ];
         $code = $sealer->seal(Sealer::AUTHORIZATION_CODE, $base + [
-            'ru' => OAuthTestConfig::REDIRECT,
+            'ru' => TestConfig::REDIRECT,
             'cc' => $pkce['challenge'],
         ]);
         $refresh = $sealer->seal(Sealer::REFRESH_TOKEN, $base);
         $form = $sealer->seal(Sealer::LOGIN_REQUEST, [
-            'cid' => OAuthTestConfig::CLIENT, 'ru' => OAuthTestConfig::REDIRECT, 'cc' => $pkce['challenge'],
+            'cid' => TestConfig::CLIENT, 'ru' => TestConfig::REDIRECT, 'cc' => $pkce['challenge'],
             'csrf' => 'c', 'exp' => $past,
         ]);
 
@@ -453,8 +453,8 @@ final class OAuthFlowTest extends TestCase
         self::assertSame('invalid_grant', $this->refresh($refresh)['body']['error']);
         $login = $this->app()->handle($this->post('/mcp/authorize', [
             'request' => $form,
-            'email' => OAuthTestConfig::EMAIL,
-            'password' => OAuthTestConfig::PASSWORD,
+            'email' => TestConfig::EMAIL,
+            'password' => TestConfig::PASSWORD,
         ], ['Cookie' => 'pim_login=c'], self::BROWSER_IP));
         self::assertSame(400, $login->status);
         self::assertStringContainsString('有効期限が切れました', $login->body);
@@ -463,7 +463,7 @@ final class OAuthFlowTest extends TestCase
     public function testRemovedClientLosesAccessAtOnce(): void
     {
         $tokens = $this->tokens();
-        $config = OAuthTestConfig::config(['auth' => ['oauth' => ['clients' => [[
+        $config = TestConfig::config(['auth' => ['oauth' => ['clients' => [[
             'id' => 'someone-else',
             'secret_hash' => null,
             'redirect_uris' => ['https://client.example/cb'],
@@ -479,13 +479,13 @@ final class OAuthFlowTest extends TestCase
         $resource = $this->json(
             $this->app()->handle($this->get('/mcp/.well-known/oauth-protected-resource', [], '', self::SERVER_IP)),
         );
-        self::assertSame(OAuthTestConfig::RESOURCE, $resource['resource']);
-        self::assertSame([OAuthTestConfig::ISSUER], $resource['authorization_servers']);
+        self::assertSame(TestConfig::RESOURCE, $resource['resource']);
+        self::assertSame([TestConfig::ISSUER], $resource['authorization_servers']);
         self::assertSame(['mail'], $resource['scopes_supported']);
 
         foreach (['/mcp/.well-known/openid-configuration', '/.well-known/oauth-authorization-server/mcp'] as $path) {
             $server = $this->json($this->app()->handle($this->get($path, [], '', self::SERVER_IP)));
-            self::assertSame(OAuthTestConfig::ISSUER, $server['issuer'], $path);
+            self::assertSame(TestConfig::ISSUER, $server['issuer'], $path);
             self::assertSame('https://example.com/mcp/authorize', $server['authorization_endpoint']);
             self::assertSame('https://example.com/mcp/token', $server['token_endpoint']);
             self::assertSame(['S256'], $server['code_challenge_methods_supported']);
@@ -498,7 +498,7 @@ final class OAuthFlowTest extends TestCase
     {
         $app = $this->app();
 
-        $login = $app->handle($this->get('/mcp/authorize', $this->authorizeQuery(OAuthTestConfig::pkce())));
+        $login = $app->handle($this->get('/mcp/authorize', $this->authorizeQuery(TestConfig::pkce())));
         self::assertSame(200, $login->status);
         self::assertSame(403, $app->handle($this->get('/mcp/.well-known/oauth-protected-resource', []))->status);
         $token = $app->handle($this->post('/mcp/token', ['grant_type' => 'refresh_token'], [], self::BROWSER_IP));
@@ -529,7 +529,7 @@ final class OAuthFlowTest extends TestCase
      */
     private function tokens(): array
     {
-        $pkce = OAuthTestConfig::pkce();
+        $pkce = TestConfig::pkce();
         $tokens = $this->exchange($this->loginForCode($pkce), $pkce['verifier']);
         self::assertSame(200, $tokens['status']);
 
@@ -557,9 +557,9 @@ final class OAuthFlowTest extends TestCase
 
     private function submitLogin(
         Response $page,
-        string $password = OAuthTestConfig::PASSWORD,
+        string $password = TestConfig::PASSWORD,
         ?Config $config = null,
-        string $email = OAuthTestConfig::EMAIL,
+        string $email = TestConfig::EMAIL,
         bool $cookie = true,
         ?string $origin = null,
     ): Response {
@@ -586,17 +586,17 @@ final class OAuthFlowTest extends TestCase
         string $code,
         string $verifier,
         array $extra = [],
-        ?string $secret = OAuthTestConfig::CLIENT_SECRET,
+        ?string $secret = TestConfig::CLIENT_SECRET,
     ): array {
         $headers = $secret === null
             ? []
-            : ['Authorization' => 'Basic ' . base64_encode(OAuthTestConfig::CLIENT . ':' . $secret)];
+            : ['Authorization' => 'Basic ' . base64_encode(TestConfig::CLIENT . ':' . $secret)];
         $response = $this->app()->handle($this->post('/mcp/token', $extra + [
             'grant_type' => 'authorization_code',
             'code' => $code,
-            'redirect_uri' => OAuthTestConfig::REDIRECT,
+            'redirect_uri' => TestConfig::REDIRECT,
             'code_verifier' => $verifier,
-            'resource' => OAuthTestConfig::RESOURCE,
+            'resource' => TestConfig::RESOURCE,
         ], $headers));
 
         return ['status' => $response->status, 'body' => $this->json($response), 'headers' => $response->headers];
@@ -626,12 +626,12 @@ final class OAuthFlowTest extends TestCase
     {
         return [
             'response_type' => 'code',
-            'client_id' => OAuthTestConfig::CLIENT,
-            'redirect_uri' => OAuthTestConfig::REDIRECT,
+            'client_id' => TestConfig::CLIENT,
+            'redirect_uri' => TestConfig::REDIRECT,
             'state' => 'xyz',
             'code_challenge' => $pkce['challenge'],
             'code_challenge_method' => 'S256',
-            'resource' => OAuthTestConfig::RESOURCE,
+            'resource' => TestConfig::RESOURCE,
             'scope' => 'mail',
         ];
     }
@@ -645,12 +645,12 @@ final class OAuthFlowTest extends TestCase
 
     private static function basic(): string
     {
-        return 'Basic ' . base64_encode(OAuthTestConfig::CLIENT . ':' . OAuthTestConfig::CLIENT_SECRET);
+        return 'Basic ' . base64_encode(TestConfig::CLIENT . ':' . TestConfig::CLIENT_SECRET);
     }
 
     private function app(?Config $config = null): Application
     {
-        $config ??= OAuthTestConfig::config([], $this->dir->path . '/var');
+        $config ??= TestConfig::config([], $this->dir->path . '/var');
 
         return new Application(
             $config,

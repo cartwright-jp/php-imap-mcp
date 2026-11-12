@@ -34,7 +34,7 @@ final class RuntimeSettings
     }
 
     /**
-     * Used codes and refresh tokens, revoked grants (imap_oauth mode).
+     * Used OAuth codes and refresh tokens, revoked grants.
      */
     public function oauthDir(): string
     {

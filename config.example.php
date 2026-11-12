@@ -3,41 +3,48 @@
 declare(strict_types=1);
 
 /*
- * php-imap-mcp configuration (SPEC.md 8).
+ * php-imap-mcp configuration (SPEC.md 7, 8).
+ *
+ * Users sign in on the server's login page with their mail address and password; the server checks them with
+ * an actual IMAP login and seals them into the tokens it issues. No mail password is stored in this file.
  *
  * Copy to config.php OUTSIDE public_html (e.g. ~/php-imap-mcp/config.php) and run: chmod 600 config.php
- * Check it with: php bin/check-config.php
+ * Check it with: php bin/check-config.php --login you@example.com
  * Unknown keys are rejected, so a typo cannot silently turn a restriction off.
  */
 
 return [
-    // MVP uses one account; the structure allows several.
-    'accounts' => [
-        'default' => [
-            'email' => 'you@example.com',
-            'password' => 'CHANGE-ME', // The mail account password (removed by the IMAP OAuth of v0.3)
-            'imap' => ['host' => 'svXXXXX.xserver.jp', 'port' => 993, 'encryption' => 'ssl'], // ssl or starttls
-            'from_name' => 'Taro Yamada', // From display name of drafts
+    'auth' => [
+        'oauth' => [
+            // The MCP endpoint URL exactly as registered in the client (keep the trailing slash).
+            'resource' => 'https://example.com/mcp/',
+            // Create with: php bin/generate-key.php. Replacing it signs every user out.
+            'key' => 'base64:REPLACE-WITH-OUTPUT-OF-generate-key',
+            'imap' => ['host' => 'svXXXXX.xserver.jp', 'port' => 993, 'encryption' => 'ssl'],
+            // The login page is open to the Internet: only these mail domains may sign in.
+            'allowed_email_domains' => ['example.com'],
+            'access_ttl_sec' => 3600,
+            // Each refresh extends the sign-in by this many days; unused longer, the user signs in again.
+            'refresh_ttl_days' => 30,
+            // Pre-registered clients. Enter id and secret in the client (claude.ai: connector advanced settings).
+            // Create a secret with php bin/generate-client-secret.php and put only its hash here.
+            'clients' => [
+                [
+                    'id' => 'claude',
+                    'secret_hash' => 'sha256:REPLACE-WITH-OUTPUT-OF-generate-client-secret',
+                    // Check the callback URL the client uses; it must match exactly.
+                    'redirect_uris' => ['https://claude.ai/api/mcp/auth_callback'],
+                    'name' => 'Claude',
+                ],
+            ],
             'folders' => ['drafts' => null, 'sent' => null], // null = detect from special-use flags
         ],
-    ],
-    'auth' => [
-        'mode' => 'token',
-        // Create a token with: php bin/generate-token.php
-        // Put only the hash here; the token itself goes into the connector's Authorization header.
-        // Several tokens may be listed at once to rotate them without downtime.
-        'tokens' => [
-            ['hash' => 'sha256:REPLACE-WITH-OUTPUT-OF-generate-token', 'account' => 'default', 'label' => 'claude.ai'],
-        ],
-        // Source IPs or CIDR ranges allowed to connect. Empty = any IP (a warning is logged).
-        // Use Anthropic's published outbound ranges, plus your own IP while developing.
+        // The login page is not IP-restricted; this applies to the MCP, token and metadata endpoints.
         'allowed_ips' => ['203.0.113.0/24'],
-        // Origin header values to accept (requests without Origin are not affected).
         'allowed_origins' => [],
-        // Ban an IP for ban_sec after max_failures failed logins within window_sec.
+        // Used for MCP requests, the token endpoint, and login attempts (per IP and per mail address).
         'lockout' => ['max_failures' => 10, 'window_sec' => 600, 'ban_sec' => 900],
     ],
-    // Read tools and save_draft are on by default; write tools must be enabled one by one.
     'tools' => [
         'list_folders' => true,
         'search_emails' => true,
@@ -47,7 +54,7 @@ return [
         'move_email' => false,
     ],
     'policy' => [
-        'allowed_folders' => [], // empty = all folders
+        'allowed_folders' => [],
         'search_limit_max' => 50,
         'body_max_chars' => 20000,
         'deny_move_to_trash' => true,
@@ -56,7 +63,7 @@ return [
         'timezone' => 'Asia/Tokyo',
         'imap_timeout_sec' => 10,
         'request_budget_sec' => 25,
-        'storage_dir' => __DIR__ . '/var', // audit log and lockout state; must be outside public_html
+        'storage_dir' => __DIR__ . '/var', // audit log, lockout, used OAuth codes; outside public_html
         'log_level' => 'info',
     ],
 ];

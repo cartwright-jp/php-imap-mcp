@@ -10,7 +10,7 @@ use Cartwright\ImapMcp\Mail\MailException;
 use Closure;
 
 /**
- * The identity check of imap_oauth mode: an actual IMAP login with the given credentials (SPEC.md 7).
+ * The identity check: an actual IMAP login with the given credentials (SPEC.md 7).
  */
 final class CredentialVerifier
 {

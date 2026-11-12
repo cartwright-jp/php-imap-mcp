@@ -9,7 +9,6 @@ use Cartwright\ImapMcp\Auth\OAuth\OAuthSettings;
 use Cartwright\ImapMcp\Config\Config;
 use Cartwright\ImapMcp\Config\ConfigException;
 use Cartwright\ImapMcp\Config\ConfigParser;
-use Cartwright\ImapMcp\Tests\Support\OAuthTestConfig;
 use Cartwright\ImapMcp\Tests\Support\TestConfig;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -23,13 +22,9 @@ final class OAuthConfigTest extends TestCase
 {
     public function testDefaultsAndDerivedUrls(): void
     {
-        $config = OAuthTestConfig::config();
+        $config = TestConfig::config();
         $oauth = $config->oauth;
 
-        self::assertTrue($config->isOAuth());
-        self::assertNotNull($oauth);
-        self::assertSame([], $config->accounts);
-        self::assertSame([], $config->tokens);
         self::assertSame(3600, $oauth->accessTtlSec);
         self::assertSame(30, $oauth->refreshTtlDays);
         self::assertSame(30 * 86400, $oauth->refreshTtlSec());
@@ -45,16 +40,14 @@ final class OAuthConfigTest extends TestCase
 
     public function testRefreshDaysAreConfigurable(): void
     {
-        $oauth = OAuthTestConfig::config(['auth' => ['oauth' => ['refresh_ttl_days' => 90]]])->oauth;
+        $oauth = TestConfig::config(['auth' => ['oauth' => ['refresh_ttl_days' => 90]]])->oauth;
 
-        self::assertNotNull($oauth);
         self::assertSame(90 * 86400, $oauth->refreshTtlSec());
     }
 
     public function testResourceAndEmailMatching(): void
     {
-        $oauth = OAuthTestConfig::config()->oauth;
-        self::assertNotNull($oauth);
+        $oauth = TestConfig::config()->oauth;
 
         self::assertTrue($oauth->isOwnResource('https://example.com/mcp/'));
         self::assertTrue($oauth->isOwnResource('https://example.com/mcp'));
@@ -73,12 +66,6 @@ final class OAuthConfigTest extends TestCase
      */
     public static function invalid(): iterable
     {
-        yield 'passwords left in accounts' => [
-            ['accounts' => TestConfig::raw()['accounts']],
-            'accounts must not be set',
-        ];
-        yield 'static tokens left' => [['auth' => ['tokens' => []]], 'auth.tokens must not be set'];
-        yield 'unknown mode' => [['auth' => ['mode' => 'oauth']], "auth.mode must be 'token' or 'imap_oauth'"];
         yield 'http resource' => [
             ['auth' => ['oauth' => ['resource' => 'http://example.com/mcp/']]],
             'auth.oauth.resource',
@@ -139,7 +126,7 @@ final class OAuthConfigTest extends TestCase
     public function testInvalidOAuthConfigIsRefused(array $overrides, string $expected): void
     {
         try {
-            OAuthTestConfig::config($overrides);
+            TestConfig::config($overrides);
             self::fail('Expected ConfigException');
         } catch (ConfigException $e) {
             self::assertStringContainsString($expected, implode("\n", $e->errors));
@@ -147,17 +134,9 @@ final class OAuthConfigTest extends TestCase
         }
     }
 
-    public function testOAuthSectionIsRejectedInTokenMode(): void
-    {
-        $this->expectException(ConfigException::class);
-        $this->expectExceptionMessage("auth.oauth is only used when auth.mode is 'imap_oauth'");
-
-        TestConfig::config(['auth' => ['oauth' => ['resource' => 'https://example.com/mcp/']]]);
-    }
-
     public function testLocalhostIsAllowedForTestingWithAWarning(): void
     {
-        $config = OAuthTestConfig::config(['auth' => ['oauth' => ['resource' => 'http://127.0.0.1:18080/']]]);
+        $config = TestConfig::config(['auth' => ['oauth' => ['resource' => 'http://127.0.0.1:18080/']]]);
 
         self::assertStringContainsString('only for local testing', implode("\n", $config->warnings));
     }

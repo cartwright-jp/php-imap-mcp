@@ -16,13 +16,13 @@ use Cartwright\ImapMcp\Http\Request;
 use Cartwright\ImapMcp\Http\Response;
 use Cartwright\ImapMcp\Mail\Imap\ImapMailbox;
 use Cartwright\ImapMcp\Tests\Support\MemoryAuditLogger;
-use Cartwright\ImapMcp\Tests\Support\OAuthTestConfig;
+use Cartwright\ImapMcp\Tests\Support\TestConfig;
 use Cartwright\ImapMcp\Tests\Support\TempDirectory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
 /**
- * imap_oauth end to end against GreenMail: the login is a real IMAP login, and the MCP tools then use the
+ * OAuth end to end against GreenMail: the login is a real IMAP login, and the MCP tools then use the
  * credentials sealed in the access token (SPEC.md 7).
  */
 #[CoversClass(Application::class)]
@@ -52,7 +52,7 @@ final class OAuthImapFlowTest extends TestCase
             $probe->close();
         }
         $this->dir = new TempDirectory();
-        $this->config = OAuthTestConfig::config(['auth' => ['oauth' => [
+        $this->config = TestConfig::config(['auth' => ['oauth' => [
             'imap' => ['host' => self::host(), 'port' => self::port()],
         ]]], $this->dir->path . '/var');
     }
@@ -96,15 +96,15 @@ final class OAuthImapFlowTest extends TestCase
      */
     private function signIn(string $password): ?array
     {
-        $pkce = OAuthTestConfig::pkce();
+        $pkce = TestConfig::pkce();
         $query = http_build_query([
             'response_type' => 'code',
-            'client_id' => OAuthTestConfig::CLIENT,
-            'redirect_uri' => OAuthTestConfig::REDIRECT,
+            'client_id' => TestConfig::CLIENT,
+            'redirect_uri' => TestConfig::REDIRECT,
             'state' => 's',
             'code_challenge' => $pkce['challenge'],
             'code_challenge_method' => 'S256',
-            'resource' => OAuthTestConfig::RESOURCE,
+            'resource' => TestConfig::RESOURCE,
         ]);
         $page = $this->app()->handle(new Request('GET', [], '', false, '198.51.100.20', '/mcp/authorize', $query));
         self::assertSame(200, $page->status);
@@ -126,9 +126,9 @@ final class OAuthImapFlowTest extends TestCase
         $token = $this->app()->handle($this->post('/mcp/token', [
             'grant_type' => 'authorization_code',
             'code' => is_string($params['code'] ?? null) ? $params['code'] : '',
-            'redirect_uri' => OAuthTestConfig::REDIRECT,
+            'redirect_uri' => TestConfig::REDIRECT,
             'code_verifier' => $pkce['verifier'],
-            'resource' => OAuthTestConfig::RESOURCE,
+            'resource' => TestConfig::RESOURCE,
         ]));
         self::assertSame(200, $token->status, $token->body);
         $decoded = json_decode($token->body, true);
@@ -157,7 +157,7 @@ final class OAuthImapFlowTest extends TestCase
     {
         return new Request('POST', [
             'Content-Type' => 'application/x-www-form-urlencoded',
-            'Authorization' => 'Basic ' . base64_encode(OAuthTestConfig::CLIENT . ':' . OAuthTestConfig::CLIENT_SECRET),
+            'Authorization' => 'Basic ' . base64_encode(TestConfig::CLIENT . ':' . TestConfig::CLIENT_SECRET),
         ], http_build_query($form), false, '203.0.113.10', $path);
     }
 

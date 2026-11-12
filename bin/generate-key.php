@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /*
- * Creates the encryption key for imap_oauth mode (config.php auth.oauth.key, SPEC.md 7).
+ * Creates the encryption key that seals the OAuth codes and tokens (config.php auth.oauth.key, SPEC.md 7).
  *
  *   php bin/generate-key.php
  *

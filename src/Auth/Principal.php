@@ -11,10 +11,10 @@ final class Principal
 {
     public function __construct(
         public readonly Account $account,
-        /** Token label (token mode) or OAuth client id (imap_oauth mode). */
-        public readonly string $label,
-        /** OAuth grant id shared by every token of one login, for revocation; null in token mode. */
-        public readonly ?string $grantId = null,
+        /** The OAuth client the token was issued to. */
+        public readonly string $clientId,
+        /** Shared by every token of one login; used to revoke that login (bin/revoke-grant.php). */
+        public readonly string $grantId,
     ) {
     }
 }

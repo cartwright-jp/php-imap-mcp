@@ -161,7 +161,7 @@ final class SaveDraftTool implements Tool
             $folder = $this->draftsFolder();
             if ($folder === null) {
                 return ToolResult::error(
-                    'No Drafts folder was found. Set accounts.<id>.folders.drafts in config.php.',
+                    'No Drafts folder was found. Set auth.oauth.folders.drafts in config.php.',
                 );
             }
             $draft = DraftBuilder::build(

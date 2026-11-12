@@ -7,7 +7,7 @@ namespace Cartwright\ImapMcp\Auth;
 /**
  * Turns the Authorization header of an MCP request into a Principal (SPEC.md 7).
  *
- * token mode: StaticTokenAuthenticator; imap_oauth mode: OAuth\AccessTokenAuthenticator.
+ * Implemented by OAuth\AccessTokenAuthenticator; an interface so the Guard can be tested on its own.
  */
 interface BearerAuthenticator
 {

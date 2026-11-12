@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace Cartwright\ImapMcp\Config;
 
-use Cartwright\ImapMcp\Auth\Account;
 use Cartwright\ImapMcp\Auth\IpRange;
 use Cartwright\ImapMcp\Auth\LockoutSettings;
 use Cartwright\ImapMcp\Auth\OAuth\OAuthSettings;
-use Cartwright\ImapMcp\Auth\TokenEntry;
 use Cartwright\ImapMcp\Policy\MailPolicy;
 use Cartwright\ImapMcp\Policy\ToolPolicy;
 
@@ -18,15 +16,13 @@ use Cartwright\ImapMcp\Policy\ToolPolicy;
 final class Config
 {
     /**
-     * @param array<string, Account> $accounts
-     * @param list<TokenEntry> $tokens empty in imap_oauth mode
-     * @param list<IpRange> $allowedIps empty = no restriction
+     * @param list<IpRange> $allowedIps empty = no restriction (the login page is never restricted)
      * @param list<string> $allowedOrigins exact Origin header values
      * @param list<string> $warnings unsafe but accepted settings, for the error log and bin/check-config.php
      */
     public function __construct(
-        public readonly array $accounts,
-        public readonly array $tokens,
+        /** Sign-in with the mail account over OAuth (auth.oauth, SPEC.md 7). */
+        public readonly OAuthSettings $oauth,
         public readonly array $allowedIps,
         public readonly array $allowedOrigins,
         public readonly LockoutSettings $lockout,
@@ -34,14 +30,7 @@ final class Config
         public readonly MailPolicy $policy,
         public readonly RuntimeSettings $runtime,
         public readonly array $warnings = [],
-        /** Set in imap_oauth mode (auth.mode), null in token mode. */
-        public readonly ?OAuthSettings $oauth = null,
     ) {
-    }
-
-    public function isOAuth(): bool
-    {
-        return $this->oauth !== null;
     }
 
     public function isIpAllowed(string $ip): bool
@@ -64,8 +53,7 @@ final class Config
     public function withWarnings(array $warnings): self
     {
         return new self(
-            $this->accounts,
-            $this->tokens,
+            $this->oauth,
             $this->allowedIps,
             $this->allowedOrigins,
             $this->lockout,
@@ -73,7 +61,6 @@ final class Config
             $this->policy,
             $this->runtime,
             [...$this->warnings, ...$warnings],
-            $this->oauth,
         );
     }
 }

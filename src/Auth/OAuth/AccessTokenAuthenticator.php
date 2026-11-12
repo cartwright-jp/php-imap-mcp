@@ -10,7 +10,7 @@ use Cartwright\ImapMcp\Auth\Principal;
 use Closure;
 
 /**
- * imap_oauth mode: validates the sealed access token of an MCP request (SPEC.md 7; MCP authorization:
+ * Validates the sealed access token of an MCP request (SPEC.md 7; MCP authorization:
  * audience validation, no token passthrough). The mail credentials come out of the token itself.
  */
 final class AccessTokenAuthenticator implements BearerAuthenticator

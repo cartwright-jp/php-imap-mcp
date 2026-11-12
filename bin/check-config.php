@@ -5,11 +5,12 @@ declare(strict_types=1);
 /*
  * Validates config.php and shows a summary without any secrets (SPEC.md 8).
  *
- *   php bin/check-config.php [--no-imap] [path/to/config.php]
+ *   php bin/check-config.php [--login user@example.com] [path/to/config.php]
  *
- * It also logs in to each account's IMAP server and finds the Drafts folder (skip with --no-imap).
+ * With --login, it asks for that mailbox's password, logs in to the IMAP server with it and finds the
+ * Drafts folder. The password is used once and not stored.
  * Default path: the PHP_IMAP_MCP_CONFIG environment variable, else config.php next to bin/.
- * Exit code 0 = usable (warnings may be shown), 1 = the server would refuse to start or the IMAP check failed.
+ * Exit code 0 = usable (warnings may be shown), 1 = the server would refuse to start or the login failed.
  */
 
 use Cartwright\ImapMcp\Auth\IpRange;
@@ -27,9 +28,16 @@ if (PHP_SAPI !== 'cli') {
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 $args = array_slice($argv, 1);
-$checkImap = !in_array('--no-imap', $args, true);
-$args = array_values(array_filter($args, static fn (string $a): bool => $a !== '--no-imap'));
-$path = $args[0] ?? ConfigLoader::resolvePath(dirname(__DIR__) . '/config.php');
+$login = null;
+$rest = [];
+for ($i = 0; $i < count($args); $i++) {
+    if ($args[$i] === '--login') {
+        $login = $args[++$i] ?? '';
+        continue;
+    }
+    $rest[] = $args[$i];
+}
+$path = $rest[0] ?? ConfigLoader::resolvePath(dirname(__DIR__) . '/config.php');
 echo "Checking {$path}\n\n";
 
 try {
@@ -51,82 +59,82 @@ if (!is_dir($storage) && !@mkdir($storage, 0700, true) && !is_dir($storage)) {
 }
 
 $oauth = $config->oauth;
-printf("Mode: %s\n", $oauth === null ? 'token' : 'imap_oauth');
-if ($oauth !== null) {
-    printf("Resource (MCP URL to register): %s\n", $oauth->resource);
-    printf("Issuer: %s\n", $oauth->issuer());
-    printf("Login page (open to every IP): %s\n", $oauth->authorizationEndpoint());
-    printf("Token endpoint: %s\n", $oauth->tokenEndpoint());
-    printf("Protected resource metadata: %s\n", $oauth->protectedResourceMetadataUrl());
-    printf("IMAP: %s:%d (%s)\n", $oauth->imapHost, $oauth->imapPort, $oauth->imapEncryption);
-    printf("Mail domains that may sign in: %s\n", implode(', ', $oauth->allowedEmailDomains));
+printf("MCP URL to register in the client: %s\n", $oauth->resource);
+printf("Issuer: %s\n", $oauth->issuer());
+printf("Login page (open to every IP): %s\n", $oauth->authorizationEndpoint());
+printf("Token endpoint: %s\n", $oauth->tokenEndpoint());
+printf("Protected resource metadata: %s\n", $oauth->protectedResourceMetadataUrl());
+printf("IMAP: %s:%d (%s)\n", $oauth->imapHost, $oauth->imapPort, $oauth->imapEncryption);
+printf("Mail domains that may sign in: %s\n", implode(', ', $oauth->allowedEmailDomains));
+printf(
+    "Access token: %ds; refresh token: extended by %d days on each use\n",
+    $oauth->accessTtlSec,
+    $oauth->refreshTtlDays,
+);
+echo "Clients:\n";
+foreach ($oauth->clients as $client) {
     printf(
-        "Access token: %ds; refresh token: extended by %d days on each use\n",
-        $oauth->accessTtlSec,
-        $oauth->refreshTtlDays,
+        "  - %s (%s, %s): %s\n",
+        $client->id,
+        $client->name,
+        $client->isConfidential() ? 'with secret' : 'public',
+        implode(', ', $client->redirectUris),
     );
-    echo "Clients:\n";
-    foreach ($oauth->clients as $client) {
-        printf(
-            "  - %s (%s, %s): %s\n",
-            $client->id,
-            $client->name,
-            $client->isConfidential() ? 'with secret' : 'public',
-            implode(', ', $client->redirectUris),
-        );
-    }
-}
-echo "Accounts:\n";
-foreach ($config->accounts as $id => $account) {
-    printf(
-        "  - %s: %s via %s:%d (%s)\n",
-        $id,
-        $account->email,
-        $account->imapHost,
-        $account->imapPort,
-        $account->imapEncryption,
-    );
-}
-printf("Tokens: %d\n", count($config->tokens));
-foreach ($config->tokens as $token) {
-    printf("  - %s -> %s\n", $token->label !== '' ? $token->label : '(no label)', $token->accountId);
 }
 $ranges = array_map(static fn (IpRange $range): string => $range->notation, $config->allowedIps);
-printf("Allowed IPs: %s\n", $ranges === [] ? '(any)' : implode(', ', $ranges));
+printf("Allowed IPs (all but the login page): %s\n", $ranges === [] ? '(any)' : implode(', ', $ranges));
 $lockout = $config->lockout;
 printf("Lockout: %d failures in %ds -> %ds ban\n", $lockout->maxFailures, $lockout->windowSec, $lockout->banSec);
 $enabled = array_filter(array_keys(ToolPolicy::DEFAULTS), static fn (string $t): bool => $config->tools->isEnabled($t));
 printf("Enabled tools: %s\n", implode(', ', $enabled));
 printf("Storage: %s\n", $storage);
 
-$imapFailed = false;
-if ($checkImap && $oauth !== null) {
-    // No password is stored in this mode; the IMAP login is checked when a user signs in.
-    echo "\nIMAP: not checked here in imap_oauth mode (sign in on the login page to test it)\n";
-} elseif ($checkImap) {
+// Reads a line from the terminal without echoing it when possible.
+$readPassword = static function (string $prompt): string {
+    echo $prompt;
+    $tty = function_exists('posix_isatty') && posix_isatty(STDIN) && function_exists('shell_exec');
+    if ($tty) {
+        @shell_exec('stty -echo');
+    }
+    $line = fgets(STDIN);
+    if ($tty) {
+        @shell_exec('stty echo');
+        echo "\n";
+    }
+
+    return rtrim($line === false ? '' : $line, "\r\n");
+};
+
+$loginFailed = false;
+if ($login === null) {
+    echo "\nIMAP: not checked (no password is stored; run with --login user@example.com to test a mailbox)\n";
+} else {
+    $password = $readPassword(sprintf('Password for %s: ', $login));
+    $account = $oauth->account($login, $password);
+    $mailbox = new ImapMailbox($account, $config->runtime->imapTimeoutSec);
     echo "\nIMAP:\n";
-    foreach ($config->accounts as $id => $account) {
-        $mailbox = new ImapMailbox($account, $config->runtime->imapTimeoutSec);
-        try {
-            $folders = $mailbox->listFolders();
-            $drafts = $account->draftsFolder;
-            if ($drafts === null) {
-                $found = array_values(array_filter(
-                    $folders,
-                    static fn (FolderInfo $f): bool => $f->specialUse === 'drafts',
-                ));
-                $drafts = $found[0]->name ?? null;
-            }
-            printf("  - %s: login OK, %d folders, Drafts: %s\n", $id, count($folders), $drafts ?? 'NOT FOUND');
-            if ($drafts === null) {
-                $warnings[] = sprintf('accounts.%s: no Drafts folder found; set folders.drafts in config.php', $id);
-            }
-        } catch (MailException $e) {
-            printf("  - %s: ERROR: %s\n", $id, $e->getMessage());
-            $imapFailed = true;
-        } finally {
-            $mailbox->close();
+    try {
+        $folders = $mailbox->listFolders();
+        $drafts = $account->draftsFolder;
+        if ($drafts === null) {
+            $found = array_values(array_filter(
+                $folders,
+                static fn (FolderInfo $f): bool => $f->specialUse === 'drafts',
+            ));
+            $drafts = $found[0]->name ?? null;
         }
+        printf("  - login OK, %d folders, Drafts: %s\n", count($folders), $drafts ?? 'NOT FOUND');
+        if ($drafts === null) {
+            $warnings[] = 'no Drafts folder found; set auth.oauth.folders.drafts in config.php';
+        }
+        if (!$oauth->isEmailAllowed($login)) {
+            $warnings[] = 'this address is not in auth.oauth.allowed_email_domains, so it cannot sign in';
+        }
+    } catch (MailException $e) {
+        printf("  - ERROR: %s\n", $e->getMessage());
+        $loginFailed = true;
+    } finally {
+        $mailbox->close();
     }
 }
 
@@ -136,8 +144,8 @@ if ($warnings !== []) {
         echo "  - {$warning}\n";
     }
 }
-if ($imapFailed) {
-    echo "\nERROR: the configuration is valid, but the IMAP check failed.\n";
+if ($loginFailed) {
+    echo "\nERROR: the configuration is valid, but the IMAP login failed.\n";
     exit(1);
 }
 echo "\nOK: the configuration is valid.\n";

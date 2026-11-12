@@ -29,23 +29,16 @@ jobs:
       - run: composer install --no-interaction --no-progress --prefer-dist
       - run: composer cs
       - run: composer stan
-      - name: E2E smoke test (curl against the PHP built-in server)
+      - name: E2E smoke tests (curl against the PHP built-in server)
         run: |
           token="$(php tests/e2e/make-config.php /tmp/php-imap-mcp-e2e)"
           PHP_IMAP_MCP_CONFIG=/tmp/php-imap-mcp-e2e/config.php php -S 127.0.0.1:18080 -t public public/index.php > /tmp/php-server.log 2>&1 &
           sleep 1
           MCP_TOKEN="$token" composer test:e2e
-          php bin/check-config.php --no-imap /tmp/php-imap-mcp-e2e/config.php
-          kill "$!"
-      - name: E2E smoke test of the OAuth endpoints (imap_oauth mode)
-        run: |
-          php tests/e2e/make-config.php /tmp/php-imap-mcp-oauth --oauth
-          PHP_IMAP_MCP_CONFIG=/tmp/php-imap-mcp-oauth/config.php php -S 127.0.0.1:18080 -t public public/index.php > /tmp/php-server-oauth.log 2>&1 &
-          sleep 1
           bash tests/e2e/oauth-smoke.sh
-          php bin/check-config.php /tmp/php-imap-mcp-oauth/config.php
+          php bin/check-config.php /tmp/php-imap-mcp-e2e/config.php
       - if: failure()
-        run: cat /tmp/php-server.log /tmp/php-server-oauth.log
+        run: cat /tmp/php-server.log
 
   unit:
     name: Unit tests (PHP ${{ matrix.php }})
