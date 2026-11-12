@@ -54,6 +54,14 @@ final class OAuthSettings
         return rtrim($this->resource, '/');
     }
 
+    /**
+     * An https resource must only be used over HTTPS; http is allowed for local testing only (SPEC.md 7).
+     */
+    public function requiresHttps(): bool
+    {
+        return strtolower((string) parse_url($this->resource, PHP_URL_SCHEME)) === 'https';
+    }
+
     public function protectedResourceMetadataUrl(): string
     {
         return $this->issuer() . '/.well-known/oauth-protected-resource';

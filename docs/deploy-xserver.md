@@ -168,6 +168,9 @@ curl -si -X POST "$u/mcp/" -H 'Content-Type: application/json' -d '{}' | grep -i
 curl -s "$u/mcp/.well-known/oauth-protected-resource"
 curl -s "$u/.well-known/oauth-protected-resource/mcp"
 
+# HTTP は拒否される: 403 と HTTPS required（転送はしない）
+curl -si -X POST "http://example.com/mcp" -d '{}' | grep -iE '^HTTP|HTTPS'
+
 # 認可サーバーのメタデータ（3か所とも同じ JSON）: "issuer":"https://example.com/mcp"
 curl -s "$u/.well-known/oauth-authorization-server/mcp"
 curl -s "$u/.well-known/openid-configuration/mcp"
@@ -207,7 +210,7 @@ curl -si -X POST "$u/mcp/" -d '{}' | head -1   # HTTP/1.1 403
 - [x] Authorization ヘッダーが PHP に届くこと（手順 7 で接続した後、ツールが動けば届いている）
 - [x] サイト直下の `.htaccess` の転送が動くこと（手順 6 の `/.well-known/…/mcp`）
 - [x] 国外IPアクセス制限など、XServer 側のアクセス制限が Anthropic からの接続を妨げないこと（初期設定のままで妨げなかった）
-- [x] HTTPS かどうかを PHP から判定できること: HTTPS では `$_SERVER['HTTPS']` が `on`、HTTP では未設定。前段の nginx が `X-Forwarded-Proto` を書き換えるので、偽れない
+- [x] HTTPS かどうかを PHP から判定できること: HTTPS では `$_SERVER['HTTPS']` が `on`、HTTP では未設定。前段の nginx が `X-Forwarded-Proto` を書き換えるので、偽れない。HTTP のリクエストは `403` で拒否される（手順 6 で確かめる）
 - [x] サーバーのキャッシュ（`Ngx_Cache_AllCacheMode`）が応答を溜めないこと: すべての応答に `Cache-Control: no-store` が付く
 - [ ] PHP の実行時間制限に当たらないこと（大きなメールの `get_email`、`search_emails` の上限件数で）
 
