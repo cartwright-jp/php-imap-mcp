@@ -456,10 +456,16 @@ return [
 3. **M2 認証と防御**: Bearerトークン、`AccountResolver`、IP制限、Originの検証、ロックアウト、監査ログ、設定の検証
 4. **M3 読み取りツール**: `list_folders`、`search_emails`、`get_email`、日本語の文字コード対応
 5. **M4 下書き**: `save_draft`（返信のスレッド情報を含む）
-6. **M5 実環境での検証**: 自分のXServerに配置し、claude.aiとスマホから受け入れ基準を確認する。ここでv0.1とする
-7. **M6 公開準備**: README（日本語・英語）、SECURITY.md、ライセンスを整え、GitHubで公開する
-8. **M7 v0.2**: フラグ操作、移動、添付ファイルのメタ情報
-9. **M8 v0.3**: IMAP認証によるOAuth（ログイン画面、封をしたトークン、Protected Resource Metadata）、設定ファイルからのパスワードの除去、vendor同梱zip配布
+6. **M5 IMAP認証によるOAuth**（v0.3から前倒し）: ログイン画面、封をしたトークン、Protected Resource Metadata、設定ファイルからのパスワードの除去（「7. 認証・セキュリティ要件」）
+7. **M6 実環境での検証**: 自分のXServerに配置し、claude.aiとスマホから受け入れ基準を確認する。ここでv0.1とする
+8. **M7 公開準備**: README（日本語・英語）、SECURITY.md、ライセンスを整え、GitHubで公開する
+9. **M8 v0.2**: フラグ操作、移動、添付ファイルのメタ情報
+10. **M9 v0.3**: vendor同梱zip配布、ブラウザの初期設定画面
+
+M0〜M4は2026-11-12に完了した。同日、次の2点を決めた。
+
+- リポジトリはOAuth（M5）を実装するまで非公開にする（GitHubの公開、Packagistへの登録はM7まで行わない）
+- 実機（XServer、claude.ai、スマホ）での検証はOAuthの実装後（M6）に行う。それまではGreenMailでの自動テストとローカルでの確認だけで進める
 
 **未決事項**
 
@@ -468,7 +474,8 @@ return [
 - [ ] ライセンスをMITにするかAGPLにするか（事業との兼ね合い）
 - [ ] Anthropicの送信元IP範囲を公式ドキュメントで確認し、変わったときの追従方法を決める
 - [ ] XServerでPHPの実行時間制限と、外部からのアクセス制限機能（国外IP制限など）がどう影響するかを実機で確認する（Anthropicの接続元は国外のIPの可能性が高い）
-- [ ] v0.3のOAuthを自前で実装するか、`league/oauth2-server` などを使うか
+- [ ] OAuth（M5）を自前で実装するか、`league/oauth2-server` などを使うか
+- [ ] OAuthを前倒ししたことに合わせて、「2. スコープ」の版の区切り（v0.1にOAuthを含めるか、Bearerトークン方式を残すか）を見直す。M7（公開準備）までに決める
 - [ ] 公式PHP SDK（`mcp/sdk`）に移行する時期の判断基準
 - [ ] `webklex/php-imap` が引き込む illuminate 5.4 系（2017年版で更新が止まっている）の扱い。実際に使うのは接続とコマンド送受信の層だけなので、webklex の依存が新しくなるか、自前の最小実装に置き換えるかを v0.2 までに判断する
 - [ ] XServer のIMAPサーバーが SPECIAL-USE（`\Drafts` などのフラグ）に対応しているか、フォルダ名がどうなっているか（`INBOX.Drafts` など）を実機で確認する
