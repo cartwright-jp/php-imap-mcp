@@ -79,7 +79,7 @@ final class ApplicationTest extends TestCase
         $list = $this->decode($this->app()->handle($this->modern('tools/list', [])));
 
         self::assertSame(
-            ['list_folders', 'search_emails', 'get_email'],
+            ['list_folders', 'search_emails', 'get_email', 'save_draft'],
             array_column($list['result']['tools'], 'name'),
         );
     }
@@ -124,7 +124,7 @@ final class ApplicationTest extends TestCase
         $app = $this->app(TestConfig::config(['tools' => ['search_emails' => false]]));
 
         $list = $this->decode($app->handle($this->modern('tools/list', [])));
-        self::assertSame(['list_folders', 'get_email'], array_column($list['result']['tools'], 'name'));
+        self::assertSame(['list_folders', 'get_email', 'save_draft'], array_column($list['result']['tools'], 'name'));
 
         $call = $app->handle($this->toolCall('search_emails', []));
         self::assertSame(200, $call->status);

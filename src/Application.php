@@ -23,6 +23,7 @@ use Cartwright\ImapMcp\Mcp\ErrorCode;
 use Cartwright\ImapMcp\Mcp\Server;
 use Cartwright\ImapMcp\Tools\GetEmailTool;
 use Cartwright\ImapMcp\Tools\ListFoldersTool;
+use Cartwright\ImapMcp\Tools\SaveDraftTool;
 use Cartwright\ImapMcp\Tools\SearchEmailsTool;
 use Cartwright\ImapMcp\Tools\Tool;
 use Cartwright\ImapMcp\Tools\ToolRegistry;
@@ -78,7 +79,7 @@ final class Application
         // Connects only when a tool uses it; disconnects at the end of the request (SPEC.md 4).
         $mailbox = ($this->mailboxFactory)($account);
         try {
-            $tools = new ToolRegistry($this->config->tools->filter($this->tools($mailbox, $deadline)));
+            $tools = new ToolRegistry($this->config->tools->filter($this->tools($account, $mailbox, $deadline)));
 
             return (new Server($tools, $audit))->handle($request);
         } finally {
@@ -120,7 +121,7 @@ final class Application
      *
      * @return list<Tool>
      */
-    private function tools(Mailbox $mailbox, Deadline $deadline): array
+    private function tools(Account $account, Mailbox $mailbox, Deadline $deadline): array
     {
         $policy = $this->config->policy;
         $timezone = $this->config->runtime->timezone;
@@ -129,6 +130,7 @@ final class Application
             new ListFoldersTool($mailbox, $policy),
             new SearchEmailsTool($mailbox, $policy, $timezone, $deadline),
             new GetEmailTool($mailbox, $policy, $timezone),
+            new SaveDraftTool($mailbox, $account, $policy, $timezone),
         ];
     }
 

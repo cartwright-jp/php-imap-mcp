@@ -81,6 +81,20 @@ final class FakeMailbox implements Mailbox
         return $this->details[$folder][$uid] ?? null;
     }
 
+    /** @var list<array{folder: string, message: string, messageId: string}> */
+    public array $appended = [];
+    /** UID returned by appendDraft; null simulates a server that does not report it. */
+    public ?int $nextUid = 42;
+
+    public function appendDraft(string $folder, string $message, string $messageId): ?int
+    {
+        $this->fail();
+        $this->folderValidity($folder);
+        $this->appended[] = compact('folder', 'message', 'messageId');
+
+        return $this->nextUid;
+    }
+
     public function close(): void
     {
         $this->closed = true;

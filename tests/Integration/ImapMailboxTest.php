@@ -13,6 +13,9 @@ use Cartwright\ImapMcp\Mail\MessageDetail;
 use Cartwright\ImapMcp\Mail\MessageSummary;
 use Cartwright\ImapMcp\Mail\Mime\BodyPart;
 use Cartwright\ImapMcp\Mail\SearchCriteria;
+use Cartwright\ImapMcp\Policy\MailPolicy;
+use Cartwright\ImapMcp\Tools\SaveDraftTool;
+use DateTimeZone;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Webklex\PHPIMAP\Config as WebklexConfig;
@@ -27,11 +30,13 @@ use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 #[CoversClass(ImapMailbox::class)]
 #[CoversClass(ResponseParser::class)]
 #[CoversClass(BodyPart::class)]
+#[CoversClass(SaveDraftTool::class)]
 final class ImapMailboxTest extends TestCase
 {
     private const FIXTURES = ['iso-2022-jp', 'shift_jis', 'html-only', 'attachment', 'euc-jp', 'reply'];
 
     private static string $folder = '';
+    private static string $drafts = '';
     /** @var array<string, int> fixture name => UID */
     private static array $uids = [];
 
@@ -51,6 +56,8 @@ final class ImapMailboxTest extends TestCase
             $imap->appendMessage($raw, $eml)->validatedData();
             self::$uids[$name] = $i + 1; // a new folder starts at UID 1
         }
+        self::$drafts = '下書き-' . bin2hex(random_bytes(3));
+        $imap->createFolder(ImapMailbox::encodeName(self::$drafts))->validatedData();
         $imap->logout();
     }
 
@@ -211,6 +218,47 @@ final class ImapMailboxTest extends TestCase
         self::assertNotNull($message);
         self::assertTrue($message->seen);
         self::assertTrue($this->summary($uid)->seen);
+    }
+
+    /**
+     * M4 acceptance (SPEC.md 11): a reply draft lands in Drafts, threaded, readable and not sent.
+     */
+    public function testReplyDraftIsSavedThreadedAndReadsBack(): void
+    {
+        $account = new Account(
+            'default',
+            'test@example.com',
+            'test-password',
+            self::host(),
+            self::port(),
+            'ssl',
+            '山田 太郎',
+            self::$drafts,
+        );
+        $tool = new SaveDraftTool($this->mailbox, $account, new MailPolicy(), new DateTimeZone('Asia/Tokyo'));
+
+        $result = $tool->call([
+            'in_reply_to_uid' => self::$uids['iso-2022-jp'],
+            'in_reply_to_folder' => self::$folder,
+            'body' => "佐藤様\n\n火曜日の14時でいかがでしょうか。①\n\n山田",
+        ]);
+
+        self::assertFalse($result->isError, $result->text);
+        self::assertNotNull($result->structured);
+        $uid = $result->structured['uid'];
+        self::assertIsInt($uid);
+        self::assertSame(self::$drafts, $result->structured['folder']);
+
+        $draft = $this->mailbox->message(self::$drafts, $uid, 20000, false, null);
+        self::assertNotNull($draft);
+        self::assertSame('Re: 打ち合わせの日程について', $draft->subject);
+        self::assertSame('佐藤 花子 <hanako@example.com>', $draft->to[0]->toString());
+        self::assertSame('山田 太郎 <test@example.com>', $draft->from[0]->toString());
+        self::assertSame('iso2022jp-1@example.com', $draft->inReplyTo);
+        self::assertSame(['iso2022jp-1@example.com'], $draft->references);
+        self::assertSame($result->structured['message_id'], $draft->messageId);
+        self::assertSame("佐藤様\n\n火曜日の14時でいかがでしょうか。①\n\n山田", $draft->body);
+        self::assertTrue($draft->seen, 'saved with \Seen so it does not show as unread');
     }
 
     public function testUnknownUidIsNull(): void
