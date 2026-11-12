@@ -50,12 +50,17 @@ check_noauth 'wrong token' 401 'Unauthorized' -H 'Authorization: Bearer wrong-to
 check 'server/discover' 200 '"supportedVersions":["2026-07-28","2025-11-25"]' "${a[@]}"
 
 mapfile -t a < <(post tools/list '' "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{$meta}}")
-check 'tools/list' 200 '"name":"echo"' "${a[@]}"
+check 'tools/list' 200 '"name":"search_emails"' "${a[@]}"
 
-mapfile -t a < <(post tools/call echo "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"echo\",\"arguments\":{\"text\":\"日本語\"},$meta}}")
-check 'tools/call echo' 200 '"text":"日本語"' "${a[@]}"
+# The throwaway config points at a mail server this test does not need: the tool must fail cleanly
+# (isError with a short message, no stack trace or path).
+mapfile -t a < <(post tools/call list_folders "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"list_folders\",\"arguments\":{},$meta}}")
+check 'tools/call without mail server' 200 '"isError":true' "${a[@]}"
 
-mapfile -t a < <(post tools/list '' "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"echo\",$meta}}")
+mapfile -t a < <(post tools/call get_email "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"get_email\",\"arguments\":{\"uid\":\"x\"},$meta}}")
+check 'tools/call invalid arguments' 200 '-32602' "${a[@]}"
+
+mapfile -t a < <(post tools/list '' "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"list_folders\",$meta}}")
 check 'Mcp-Method mismatch' 400 '-32020' "${a[@]}"
 
 mapfile -t a < <(post resources/list '' "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"resources/list\",\"params\":{$meta}}")
@@ -65,7 +70,7 @@ check 'legacy initialize' 200 '"protocolVersion":"2025-11-25"' -X POST -H 'Conte
   -d '{"jsonrpc":"2.0","id":6,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
 check 'legacy notifications/initialized' 202 '' -X POST -H 'Content-Type: application/json' \
   -H 'MCP-Protocol-Version: 2025-11-25' -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-check 'legacy tools/list' 200 '"name":"echo"' -X POST -H 'Content-Type: application/json' \
+check 'legacy tools/list' 200 '"name":"get_email"' -X POST -H 'Content-Type: application/json' \
   -H 'MCP-Protocol-Version: 2025-11-25' -d '{"jsonrpc":"2.0","id":7,"method":"tools/list"}'
 check 'legacy ping' 200 '"result":{}' -X POST -H 'Content-Type: application/json' \
   -H 'MCP-Protocol-Version: 2025-11-25' -d '{"jsonrpc":"2.0","id":8,"method":"ping"}'

@@ -16,11 +16,17 @@ use Cartwright\ImapMcp\Http\Request;
 use Cartwright\ImapMcp\Http\Response;
 use Cartwright\ImapMcp\Log\AuditLogger;
 use Cartwright\ImapMcp\Log\JsonLinesAuditLogger;
+use Cartwright\ImapMcp\Mail\Deadline;
+use Cartwright\ImapMcp\Mail\Imap\ImapMailbox;
+use Cartwright\ImapMcp\Mail\Mailbox;
 use Cartwright\ImapMcp\Mcp\ErrorCode;
 use Cartwright\ImapMcp\Mcp\Server;
-use Cartwright\ImapMcp\Tools\EchoTool;
+use Cartwright\ImapMcp\Tools\GetEmailTool;
+use Cartwright\ImapMcp\Tools\ListFoldersTool;
+use Cartwright\ImapMcp\Tools\SearchEmailsTool;
 use Cartwright\ImapMcp\Tools\Tool;
 use Cartwright\ImapMcp\Tools\ToolRegistry;
+use Closure;
 use Throwable;
 
 /**
@@ -28,11 +34,21 @@ use Throwable;
  */
 final class Application
 {
+    /** @var Closure(Account): Mailbox */
+    private readonly Closure $mailboxFactory;
+
+    /**
+     * @param (Closure(Account): Mailbox)|null $mailboxFactory injectable for tests; defaults to IMAP
+     */
     public function __construct(
         private readonly Config $config,
         private readonly AuditLogger $audit,
         private readonly Lockout $lockout,
+        ?Closure $mailboxFactory = null,
     ) {
+        $timeout = $config->runtime->imapTimeoutSec;
+        $this->mailboxFactory = $mailboxFactory
+            ?? static fn (Account $account): Mailbox => new ImapMailbox($account, $timeout);
     }
 
     public static function fromConfig(Config $config): self
@@ -48,6 +64,7 @@ final class Application
 
     public function handle(Request $request): Response
     {
+        $deadline = Deadline::in($this->config->runtime->requestBudgetSec);
         $audit = $this->audit->withContext(['ip' => $request->remoteAddr]);
         $guard = new Guard($this->config, new TokenAuthenticator($this->config->tokens), $this->lockout, $audit);
         $token = $guard->check($request);
@@ -58,9 +75,15 @@ final class Application
         $account = (new ConfigAccountResolver($this->config->accounts))->resolve($token);
         // The account id, not the address, so the log holds no personal data beyond the IP.
         $audit = $audit->withContext(['account' => $account->id, 'token' => $token->label]);
-        $tools = new ToolRegistry($this->config->tools->filter($this->tools($account)));
+        // Connects only when a tool uses it; disconnects at the end of the request (SPEC.md 4).
+        $mailbox = ($this->mailboxFactory)($account);
+        try {
+            $tools = new ToolRegistry($this->config->tools->filter($this->tools($mailbox, $deadline)));
 
-        return (new Server($tools, $audit))->handle($request);
+            return (new Server($tools, $audit))->handle($request);
+        } finally {
+            $mailbox->close();
+        }
     }
 
     /**
@@ -70,6 +93,10 @@ final class Application
      */
     public static function run(string $configPath): void
     {
+        // PHP notices (also from libraries) must never reach the client: they would break the JSON and could
+        // reveal server paths (SPEC.md 5). They still go to the server's error log.
+        ini_set('display_errors', '0');
+        ini_set('log_errors', '1');
         try {
             $docRoot = $_SERVER['DOCUMENT_ROOT'] ?? null;
             $config = ConfigLoader::load(ConfigLoader::resolvePath($configPath), is_string($docRoot) ? $docRoot : null);
@@ -89,16 +116,20 @@ final class Application
     }
 
     /**
-     * Every tool this version implements, before ToolPolicy removes the disabled ones.
+     * Every tool this version implements, before ToolPolicy removes the disabled ones (SPEC.md 6).
      *
      * @return list<Tool>
      */
-    private function tools(Account $account): array
+    private function tools(Mailbox $mailbox, Deadline $deadline): array
     {
-        // M3 adds the mail tools, which receive $account.
-        unset($account);
+        $policy = $this->config->policy;
+        $timezone = $this->config->runtime->timezone;
 
-        return [new EchoTool()];
+        return [
+            new ListFoldersTool($mailbox, $policy),
+            new SearchEmailsTool($mailbox, $policy, $timezone, $deadline),
+            new GetEmailTool($mailbox, $policy, $timezone),
+        ];
     }
 
     private static function internalError(string $message): Response

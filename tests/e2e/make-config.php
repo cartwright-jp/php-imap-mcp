@@ -9,7 +9,8 @@ declare(strict_types=1);
  *   PHP_IMAP_MCP_CONFIG=/tmp/php-imap-mcp-e2e/config.php php -S 127.0.0.1:18080 -t public &
  *   MCP_TOKEN=$TOKEN composer test:e2e
  *
- * The account points at the local test mail server (GreenMail); M2 tools do not connect to it.
+ * The account points at the local test mail server; the smoke test only checks that tools fail cleanly
+ * without it (production code verifies certificates, so it cannot log in to the self-signed test server).
  */
 
 use Cartwright\ImapMcp\Auth\TokenAuthenticator;

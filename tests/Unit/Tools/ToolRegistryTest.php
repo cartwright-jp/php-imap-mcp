@@ -4,14 +4,13 @@ declare(strict_types=1);
 
 namespace Cartwright\ImapMcp\Tests\Unit\Tools;
 
-use Cartwright\ImapMcp\Tools\EchoTool;
+use Cartwright\ImapMcp\Tests\Support\EchoTool;
 use Cartwright\ImapMcp\Tools\ToolRegistry;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(ToolRegistry::class)]
-#[CoversClass(EchoTool::class)]
 final class ToolRegistryTest extends TestCase
 {
     public function testDuplicateNamesAreRejected(): void

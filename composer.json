@@ -14,7 +14,8 @@
         "ext-iconv": "*",
         "ext-json": "*",
         "ext-mbstring": "*",
-        "ext-openssl": "*"
+        "ext-openssl": "*",
+        "webklex/php-imap": "^6.2"
     },
     "require-dev": {
         "phpstan/phpstan": "^2.3",
