@@ -32,7 +32,8 @@ return [
                 [
                     'id' => 'claude',
                     'secret_hash' => 'sha256:REPLACE-WITH-OUTPUT-OF-generate-client-secret',
-                    // Check the callback URL the client uses; it must match exactly.
+                    // Must match exactly. claude.ai (web, desktop and mobile apps) uses this one
+                    // (https://claude.com/docs/connectors/building/authentication).
                     'redirect_uris' => ['https://claude.ai/api/mcp/auth_callback'],
                     'name' => 'Claude',
                 ],
@@ -40,7 +41,10 @@ return [
             'folders' => ['drafts' => null, 'sent' => null], // null = detect from special-use flags
         ],
         // The login page is not IP-restricted; this applies to the MCP, token and metadata endpoints.
-        'allowed_ips' => ['203.0.113.0/24'],
+        // claude.ai connects from Anthropic's outbound ranges: https://platform.claude.com/docs/en/api/ip-addresses
+        // Empty = no restriction (a warning is shown). Clients that connect from your own device (Claude Code)
+        // need your IP here instead.
+        'allowed_ips' => ['160.79.104.0/21', '153.61.208.0/20'],
         'allowed_origins' => [],
         // Used for MCP requests, the token endpoint, and login attempts (per IP and per mail address).
         'lockout' => ['max_failures' => 10, 'window_sec' => 600, 'ban_sec' => 900],

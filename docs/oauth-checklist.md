@@ -31,6 +31,7 @@ SPEC.md 7章の方針（OAuth を自前で実装し、要件を一覧にして�
 | リダイレクト URI は https か localhost | MCP Security（MUST） | 設定の検証で拒否 | Config `http redirect` |
 | PKCE は S256 だけ。`plain` と PKCE なしは拒否 | OAuth 2.1 4.1.1、MCP Security | `AuthorizeEndpoint::show` | Flow `testInvalidRequestsAreRedirectedWithAnError`、E2E |
 | `resource` が自サーバーでなければ拒否 | RFC 8707、MCP | `invalid_target` | Flow `testInvalidRequestsAreRedirectedWithAnError` |
+| `resource` は末尾のスラッシュ、scheme とホストの大文字小文字を区別せずに比べる（claude.ai はスラッシュなしで送る） | RFC 8707、claude.ai の Authentication | `OAuthSettings::isOwnResource` | Flow `testCanonicalResourceWithoutTrailingSlashAndSecretInTheBody`、`testRefreshForAnotherResourceOrScopeIsRefused` |
 | 認可応答に `iss` を入れる（エラー応答も） | RFC 9207、MCP（SHOULD） | `AuthorizeEndpoint::redirect` | Flow `testLoginTokenExchangeAndMcpCall`、`testInvalidRequestsAreRedirectedWithAnError` |
 | `state` をそのまま返す | OAuth 2.1 | 同上 | 同上 |
 | パラメータの重複を拒否する | OAuth 2.1 3.1 | `Request::isRepeated` | Flow `testRepeatedParametersAreRejected` |
