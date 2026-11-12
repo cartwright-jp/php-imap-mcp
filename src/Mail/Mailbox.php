@@ -15,6 +15,11 @@ namespace Cartwright\ImapMcp\Mail;
 interface Mailbox
 {
     /**
+     * Connects and logs in, to confirm the credentials (OAuth login and refresh).
+     */
+    public function checkLogin(): void;
+
+    /**
      * @return list<FolderInfo>
      */
     public function listFolders(): array;

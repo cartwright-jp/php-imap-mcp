@@ -36,6 +36,11 @@ final class FakeMailbox implements Mailbox
     /** @var list<array{folder: string, uid: int, maxChars: int, markSeen: bool, uidValidity: ?int}> */
     public array $messageCalls = [];
 
+    public function checkLogin(): void
+    {
+        $this->fail();
+    }
+
     public function listFolders(): array
     {
         $this->fail();

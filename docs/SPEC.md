@@ -132,7 +132,7 @@ php-imap-mcp/
 │   ├── Mail/               # IMAPの抽象化、MIMEと文字コードの変換
 │   ├── Log/                # 監査ログ（JSON Lines）
 │   └── Config/             # 設定の読み込みと検証
-├── bin/                    # generate-token.php, check-config.php
+├── bin/                    # generate-token.php, generate-key.php, revoke-grant.php, check-config.php
 ├── tests/                  # Unit/, Integration/, fixtures/（日本語メール）
 ├── docs/SPEC.md            # この仕様書
 ├── config.example.php
@@ -277,6 +277,7 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
   - 扱う範囲を絞る: 認可コード方式（PKCEはS256のみ）とリフレッシュだけ。クライアントは事前登録だけ（Dynamic Client Registrationは実装しない。Client ID Metadata Documentsは必要が分かってから検討する）
   - 品質の担保: OAuth 2.1 と OAuth の security BCP（RFC 9700）、MCPの認可仕様の要件を一覧にして項目ごとにテストを用意する。公開（M7）の前に、認証まわりに絞った見直しを行う
 - 限界: サーバーの暗号鍵とトークンの両方が盗まれた場合はパスワードが漏れる。平文の設定ファイルより攻撃者に必要な条件は増えるが、AI専用メールボックスの推奨は継続する
+  - 認可コードもパスワードを封じ込めたもので、ブラウザのリダイレクト（URL）に載るため、クライアント側のアクセスログなどに残りうる。中身は鍵がなければ読めず、5分で失効し、1回しか使えない
   - 一般的なOAuthでは、トークンが漏れてもパスワードは漏れない。この設計で性質が違うのは、XServerのIMAPがOAuth（XOAUTH2）に対応しておらず、誰かがパスワードを保持するしかないため。サーバーに保存庫を持つ方式（トークンは参照IDだけ）と比べると、この方式はサーバーだけが侵害されてもパスワードは漏れず、漏らすには鍵とトークンの両方が必要になる
 - 状態について: 常駐プロセスとセッションは持たない。トークンと認可コードの中身は封をしてクライアントに持たせ、サーバーには保存しない。ただしOAuthの要件のため、次の短命で小さな記録だけはファイルで持つ（`runtime.storage_dir`）
   - 使用済みの認可コードのID（有効期限の約10分まで。OAuth 2.1 で認可コードは1回限り）
@@ -284,6 +285,26 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
   - 個別に取り消したトークンのID（期限まで）
   - ログイン画面とトークンの試行回数（ロックアウト）
 - 代替案: 自前のログイン画面を置けない環境向けに、認証情報をリクエストヘッダーで受け取る方式を将来の選択肢として残す（パスワードがクライアントの設定に残るため優先度は低い）
+
+**OAuth の実装の詳細（M5、2026-11-12）**
+
+要件と、それを確かめるテストの対応は [docs/oauth-checklist.md](oauth-checklist.md) にまとめる。
+
+- モード: `auth.mode` を `imap_oauth` にすると有効になる。`token`（Bearerトークン）とはどちらか一方。`imap_oauth` では `accounts` と `auth.tokens` を書くと起動を拒否する（パスワードを残さないため）
+- URL の配置（例: MCP が `https://example.com/mcp/`）
+  - 発行者（issuer）: `https://example.com/mcp`（`resource` から末尾の `/` を除いたもの）
+  - ログイン画面: `/mcp/authorize`、トークン: `/mcp/token`
+  - Protected Resource Metadata: `/mcp/.well-known/oauth-protected-resource`（401 の `WWW-Authenticate` で場所を示す）
+  - 認可サーバーのメタデータ: `/mcp/.well-known/openid-configuration`。MCPクライアントが試す3番目の場所で、`public_html/mcp/` の中に収まるため、サイト直下の設定は不要。サイト直下の `.htaccess` で `/.well-known/oauth-authorization-server/mcp` を `mcp/index.php` に転送すれば、1番目の場所でも同じ文書を返す
+  - `public/.htaccess` はすべてのパスを `index.php` に渡し、`index.php` がパスで振り分ける。index.php 以外のファイルは配信されない
+- スコープ: `mail` の1つだけ。使えるツールは `tools.*` で決める
+- 封印トークン: アクセストークン、リフレッシュトークン、認可コード、ログイン画面の要求を、すべて XChaCha20-Poly1305（sodium）で封印する。種類ごとの接頭辞（`pim_at_` など）を付け、種類を関連データにも入れて、別の種類として使えないようにする
+- 期限: 認可コード5分、ログイン画面10分、アクセストークンとリフレッシュトークンは設定（上記）
+- ログイン画面の防御: 封印したログイン要求と同じ値の Cookie（HttpOnly、Secure、SameSite=Lax）で CSRF を防ぐ。Origin が自サーバー以外なら拒否する。`Content-Security-Policy`（`frame-ancestors 'none'`、`form-action` は自サーバーとリダイレクト先だけ）と `X-Frame-Options: DENY` を付ける。リダイレクト先のホスト名とクライアント名を表示する
+- クライアント: 設定に事前登録する（`id`、`secret_hash`、`redirect_uris`、`name`）。シークレットは `bin/generate-token.php` で作り、ハッシュだけを書く。シークレットのないクライアントは公開クライアント（PKCEのみ）として扱い、警告を出す
+- 取り消し: ログイン単位（grant）で `php bin/revoke-grant.php <grant>`。grant は監査ログの `oauth_login` などに記録される。全員の取り消しは `oauth.key` の入れ替え（`bin/generate-key.php`）
+- 監査ログ: `oauth_login`、`oauth_login_failed`、`oauth_token`、`oauth_grant_failed`、`oauth_client_failed`、`oauth_refresh_reuse` を記録する。アカウントはメールアドレスで、パスワードとトークンは記録しない
+- `bin/check-config.php` は imap_oauth では URL、クライアント、ドメインを表示し、IMAP の確認はログイン画面で行うよう案内する
 
 **接続元の制限**
 
@@ -346,12 +367,20 @@ return [
         'allowed_ips'     => ['203.0.113.0/24'],   // 空 = 制限なし（警告を出す）
         'allowed_origins' => [],
         'lockout'         => ['max_failures' => 10, 'window_sec' => 600, 'ban_sec' => 900],
-        // M5（imap_oauth）で使う項目の例
+        // imap_oauth モードの例（全体は config.example.oauth.php。このモードでは accounts と tokens を書かない）
+        // 'mode'  => 'imap_oauth',
         // 'oauth' => [
-        //     'allowed_email_domains' => ['example.com'],
-        //     'access_ttl_sec'        => 3600,  // アクセストークンの有効期間
+        //     'resource'              => 'https://example.com/mcp/',   // クライアントに登録するMCPのURL
+        //     'key'                   => 'base64:...',                 // bin/generate-key.php で生成
+        //     'imap'                  => ['host' => 'svXXXXX.xserver.jp', 'port' => 993, 'encryption' => 'ssl'],
+        //     'allowed_email_domains' => ['example.com'],             // 必須。ログインできるドメイン
+        //     'access_ttl_sec'        => 3600,  // アクセストークンの有効期間（60〜86400）
         //     'refresh_ttl_days'      => 30,    // リフレッシュのたびにこの日数だけ延長する（1〜365）
-        //     'clients'               => [['id' => '...', 'secret_hash' => '...']],
+        //     'clients'               => [[
+        //         'id' => 'claude', 'secret_hash' => 'sha256:...',   // null なら公開クライアント（PKCEのみ）
+        //         'redirect_uris' => ['https://...'], 'name' => 'Claude',
+        //     ]],
+        //     'folders'               => ['drafts' => null, 'sent' => null],
         // ],
     ],
     'tools' => [
@@ -481,7 +510,7 @@ return [
 9. **M8 v0.2**: フラグ操作、移動、添付ファイルのメタ情報
 10. **M9 v0.3**: vendor同梱zip配布、ブラウザの初期設定画面
 
-M0〜M4は2026-11-12に完了した。同日、次の2点を決めた。
+M0〜M4は2026-11-12に完了した。M5も同日に実装した（自動テストとローカルでの確認まで。実機での確認はM6）。M4の完了時に、次の2点を決めた。
 
 - リポジトリはOAuth（M5）を実装するまで非公開にする（GitHubの公開、Packagistへの登録はM7まで行わない）
 - 実機（XServer、claude.ai、スマホ）での検証はOAuthの実装後（M6）に行う。それまではGreenMailでの自動テストとローカルでの確認だけで進める
@@ -498,6 +527,8 @@ M0〜M4は2026-11-12に完了した。同日、次の2点を決めた。
 - [ ] 公式PHP SDK（`mcp/sdk`）に移行する時期の判断基準
 - [ ] `webklex/php-imap` が引き込む illuminate 5.4 系（2017年版で更新が止まっている）の扱い。実際に使うのは接続とコマンド送受信の層だけなので、webklex の依存が新しくなるか、自前の最小実装に置き換えるかを v0.2 までに判断する
 - [ ] XServer のIMAPサーバーが SPECIAL-USE（`\Drafts` などのフラグ）に対応しているか、フォルダ名がどうなっているか（`INBOX.Drafts` など）を実機で確認する
+- [ ] OAuth を実機で確認する（M6）: claude.ai のカスタムコネクタがクライアントIDとシークレットの事前登録で接続できるか、コールバックURL（`redirect_uris` に書く値）、認可サーバーのメタデータを `/mcp/.well-known/openid-configuration` で見つけられるか（だめならサイト直下の `.htaccess` で転送する）、`.htaccess` の `RewriteRule` とログイン画面だけを IP 制限から外す `<If>` が XServer で動くか、sodium 拡張が使えるか
+- [ ] Client ID Metadata Documents（MCP で SHOULD）に対応するか。claude.ai が事前登録だけで動けば当面は不要
 - [x] プロダクト名の確定: `php-imap-mcp` に決定（IMAP専用のため）。パッケージ名は `cartwright-jp/php-imap-mcp`（2026-11-11 時点で Packagist・GitHub ともに同名なし、`cartwright-jp` も未使用）
 - [x] GitHub Organization `cartwright-jp` を作成する（2026-11-11 作成済み）
 - [ ] Packagist のベンダー名 `cartwright-jp` を確保する。最初のパッケージ登録で確保されるため、公開時に早めに登録する

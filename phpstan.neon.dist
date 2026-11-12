@@ -12,3 +12,4 @@ parameters:
         - public
         - bin
         - config.example.php
+        - config.example.oauth.php
