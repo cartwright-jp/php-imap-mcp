@@ -59,6 +59,8 @@ SSH のクライアントは、手元の WSL（Ubuntu）の OpenSSH（`ssh`、`s
    php -m | grep -i sodium            # sodium 拡張が必要
    ```
 
+   `~/.bash_profile` は、ログインして使うシェルでだけ読まれる。`ssh xserver 'コマンド'` のように直接実行すると古い `php` が使われるので、そのときは `~/bin/php` と書くか、`bash -lc 'コマンド'` で包む
+
 7. Composer を `~/bin` に入れる（[公式の手順](https://getcomposer.org/download/)。インストーラーの検証用ハッシュは公式ページの最新の値を使う）
 
    ```sh
