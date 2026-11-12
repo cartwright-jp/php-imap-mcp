@@ -140,6 +140,27 @@ final class OAuthFlowTest extends TestCase
         self::assertSame(200, $tokens['status'], json_encode($tokens['body'], JSON_THROW_ON_ERROR));
     }
 
+    /**
+     * claude.ai sends the canonical MCP URL as resource (no trailing slash) on every request
+     * (claude.com/docs/connectors/building/authentication), and may send the secret in the form body.
+     */
+    public function testCanonicalResourceWithoutTrailingSlashAndSecretInTheBody(): void
+    {
+        $pkce = TestConfig::pkce();
+        $code = $this->loginForCode($pkce, ['resource' => TestConfig::ISSUER]);
+
+        $tokens = $this->exchange($code, $pkce['verifier'], [
+            'resource' => TestConfig::ISSUER,
+            'client_id' => TestConfig::CLIENT,
+            'client_secret' => TestConfig::CLIENT_SECRET,
+        ], null);
+        self::assertSame(200, $tokens['status'], json_encode($tokens['body'], JSON_THROW_ON_ERROR));
+
+        $refresh = $this->refresh((string) $tokens['body']['refresh_token'], ['resource' => TestConfig::ISSUER]);
+        self::assertSame(200, $refresh['status']);
+        self::assertSame(200, $this->app()->handle($this->mcp((string) $refresh['body']['access_token']))->status);
+    }
+
     // ---- refresh ----
 
     public function testRefreshRotatesTokens(): void
@@ -517,6 +538,11 @@ final class OAuthFlowTest extends TestCase
         self::assertSame(
             Application::ROUTE_SERVER_METADATA,
             Application::route('/mcp/.well-known/openid-configuration'),
+        );
+        // Forwarded from the site root (docs/deploy-xserver.md 5).
+        self::assertSame(
+            Application::ROUTE_SERVER_METADATA,
+            Application::route('/.well-known/oauth-authorization-server/mcp'),
         );
         self::assertSame(Application::ROUTE_MCP, Application::route('/mcp/'));
         self::assertSame(Application::ROUTE_MCP, Application::route('/mcp/index.php'));

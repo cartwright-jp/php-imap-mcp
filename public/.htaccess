@@ -8,8 +8,8 @@ DirectoryIndex index.php
     # Pass the Authorization header to PHP (XServer may drop it otherwise).
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-    # Every path goes to index.php, which routes the MCP endpoint and, in imap_oauth mode,
-    # authorize, token and .well-known/*. No other file in this directory is ever served.
+    # Every path goes to index.php, which routes the MCP endpoint, authorize, token and .well-known/*.
+    # No other file in this directory is ever served.
     RewriteRule ^index\.php$ - [L]
     RewriteRule ^ index.php [L]
 </IfModule>
@@ -25,13 +25,9 @@ SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
     </FilesMatch>
 </IfModule>
 
-# IP restriction (recommended). PHP checks auth.allowed_ips as well.
-#
-# token mode: allow only Anthropic's published outbound ranges and your own IP:
-#   Require ip 203.0.113.0/24
-#
-# imap_oauth mode: the login page (authorize) is opened by the user's browser from anywhere, so it must stay
-# open; everything else can be restricted. THE_REQUEST is the original request line (not the rewritten one):
+# IP restriction: PHP already applies auth.allowed_ips in config.php (except to the login page), so this is
+# optional, for refusing requests before PHP runs. The login page (authorize) is opened by the user's browser
+# from anywhere and must stay open. THE_REQUEST is the original request line (not the rewritten one):
 #   <If "%{THE_REQUEST} !~ m#^[A-Z]+ [^ ?]*/authorize/?(\?[^ ]*)? #">
-#       Require ip 203.0.113.0/24
+#       Require ip 160.79.104.0/21 153.61.208.0/20
 #   </If>

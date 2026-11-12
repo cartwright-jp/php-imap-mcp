@@ -304,7 +304,7 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
 
 **接続元の制限**
 
-- 設定で許可するIP範囲（CIDR）を指定できる。Anthropicが公開している送信元IP範囲を使う想定で、開発時は自宅IPを追加する
+- 設定で許可するIP範囲（CIDR）を指定できる。Anthropicが公開している送信元IP範囲（2026-11-12 時点で `160.79.104.0/21` と `153.61.208.0/20`。設定の見本の初期値）を使う想定で、開発時は自宅IPを追加する。Claude Code のように利用者の端末から直接つなぐクライアントでは、利用者のIPが必要になるので、空（制限なし）にすることもできる
 - `.htaccess` の例を同梱し、PHP側でも二重に判定する
 - 認証失敗が続いた場合はIP単位で一時的にロックアウトする（例: 10分に10回失敗で、15分拒否。ファイルベースで記録）
 - OAuth（M5）では、接続元によって制限を分ける
@@ -360,7 +360,7 @@ return [
             ]],
             'folders'               => ['drafts' => null, 'sent' => null], // null = 特殊用途から自動検出
         ],
-        'allowed_ips'     => ['203.0.113.0/24'],   // ログイン画面以外に適用。空 = 制限なし（警告を出す）
+        'allowed_ips'     => ['160.79.104.0/21', '153.61.208.0/20'], // Anthropicの送信元。ログイン画面以外に適用。空 = 制限なし（警告を出す）
         'allowed_origins' => [],
         'lockout'         => ['max_failures' => 10, 'window_sec' => 600, 'ban_sec' => 900],
     ],
@@ -427,11 +427,13 @@ return [
 
 **インストール手順（XServer、MVP）**
 
+詳しい手順と、実環境で確かめる項目は [deploy-xserver.md](deploy-xserver.md) にまとめる。
+
 1. SSHで接続し、`~/php-imap-mcp/` に配置して `composer install --no-dev` を実行する
 2. `config.example.php` を `config.php` にコピーして編集し、`chmod 600` する
 3. `php bin/generate-key.php` で暗号鍵を、`php bin/generate-client-secret.php` でクライアントシークレットを作り、鍵とシークレットのハッシュを設定に書く
 4. `php bin/check-config.php` で、IMAPへの接続を確認する
-5. `public/index.php` と `public/.htaccess` を `~/example.com/public_html/mcp/` に配置する
+5. `public/index.php` と `public/.htaccess` を `~/example.com/public_html/mcp/` に配置する。サイト直下の `.htaccess` に、認可サーバーのメタデータ（`/.well-known/oauth-authorization-server/mcp` など）を `mcp/index.php` へ渡す1行を足す
 6. claude.aiのカスタムコネクタにURLを登録し、詳細設定にクライアントIDとシークレットを入力する。接続するとログイン画面が開くので、メールアドレスとパスワードでログインする
 
 **OSS運営**
@@ -498,18 +500,19 @@ M0〜M4は2026-11-12に完了した。M5も同日に実装した（自動テス�
 
 **未決事項**
 
-- [ ] claude.aiが対応しているMCP仕様の版（2026-07-28 / 2025-11-25）と、OAuthの事前登録・PKCE・metadataの扱いを実機で確認する。あわせて、リフレッシュトークンで自動的に更新されるか（されない場合はアクセストークンの期限ごとに再ログインになるため、期限の初期値を見直す）、Webで接続したコネクタがスマホのアプリでもそのまま使えるかを確認する（M6）
+- [ ] claude.aiが対応しているMCP仕様の版（2026-07-28 / 2025-11-25）と、OAuthの事前登録・PKCE・metadataの扱いを実機で確認する。あわせて、リフレッシュトークンで自動的に更新されるか（されない場合はアクセストークンの期限ごとに再ログインになるため、期限の初期値を見直す）、Webで接続したコネクタがスマホのアプリでもそのまま使えるかを確認する（M6）。公式ドキュメント（[Authentication](https://claude.com/docs/connectors/building/authentication)、2026-11-12 確認）には、PKCE（S256）を必ず使う、`resource` は末尾のスラッシュなしで送る、期限の5分前か401でリフレッシュする、とある。末尾のスラッシュの有無は単体テストで確かめた
 - [ ] `2025-06-18` 版クライアントへの対応要否（M1では2025-11-25のみ。claude.ai や MCP Inspector の実機確認で必要と分かれば `ProtocolVersion::LEGACY` に追加する。2025-06-18 と 2025-11-25 は本サーバーが使うメソッドの形が同じ）
 - [ ] ライセンスをMITにするかAGPLにするか（事業との兼ね合い）
-- [ ] Anthropicの送信元IP範囲を公式ドキュメントで確認し、変わったときの追従方法を決める
+- [x] Anthropicの送信元IP範囲を公式ドキュメントで確認する: `160.79.104.0/21` と `153.61.208.0/20`（[IP addresses](https://platform.claude.com/docs/en/api/ip-addresses)、2026-11-12 確認。「予告なく変えない」とされている）。追従はこのページの告知を見て `auth.allowed_ips` を書き換える
 - [ ] XServerでPHPの実行時間制限と、外部からのアクセス制限機能（国外IP制限など）がどう影響するかを実機で確認する（Anthropicの接続元は国外のIPの可能性が高い）
 - [x] OAuth（M5）を自前で実装するか、`league/oauth2-server` などを使うか: 自前で実装する（2026-11-12決定。「7. 認証・セキュリティ要件」）
 - [x] OAuthを前倒ししたことに合わせて、「2. スコープ」の版の区切りを見直す: v0.1にOAuthを含め、Bearerトークン方式は廃止する（2026-11-12決定）
 - [ ] 公式PHP SDK（`mcp/sdk`）に移行する時期の判断基準
 - [ ] `webklex/php-imap` が引き込む illuminate 5.4 系（2017年版で更新が止まっている）の扱い。実際に使うのは接続とコマンド送受信の層だけなので、webklex の依存が新しくなるか、自前の最小実装に置き換えるかを v0.2 までに判断する
 - [ ] XServer のIMAPサーバーが SPECIAL-USE（`\Drafts` などのフラグ）に対応しているか、フォルダ名がどうなっているか（`INBOX.Drafts` など）を実機で確認する
-- [ ] OAuth を実機で確認する（M6）: claude.ai のカスタムコネクタがクライアントIDとシークレットの事前登録で接続できるか、コールバックURL（`redirect_uris` に書く値）、認可サーバーのメタデータを `/mcp/.well-known/openid-configuration` で見つけられるか（だめならサイト直下の `.htaccess` で転送する）、`.htaccess` の `RewriteRule` とログイン画面だけを IP 制限から外す `<If>` が XServer で動くか、sodium 拡張が使えるか
-- [ ] 下書きの From に表示名（例: 山田 太郎）を付ける方法。固定トークン方式の廃止で設定の `from_name` がなくなったため、今は表示名なしのアドレスだけになる。ログイン画面で入力してもらう、メールサーバーの送信済みメールから推定する、ドメインごとに設定する、などの案がある
+- [ ] OAuth を実機で確認する（M6、[deploy-xserver.md](deploy-xserver.md) 8章）: claude.ai のカスタムコネクタがクライアントIDとシークレットの事前登録で接続できるか、コールバックURL（公式ドキュメントでは `https://claude.ai/api/mcp/auth_callback`）、認可サーバーのメタデータをどの場所で見つけるか（パスつきの発行者のときにどこを探すかが公式ドキュメントにないので、サイト直下の `.htaccess` で転送する手順を標準にした。要らないと分かれば任意にする）、`.htaccess` の `RewriteRule` とログイン画面だけを IP 制限から外す `<If>` が XServer で動くか、sodium 拡張が使えるか
+- [ ] 下書きの From に表示名（例: 山田 太郎）を付ける方法。固定トークン方式の廃止で設定の `from_name` がなくなったため、今は表示名なしのアドレスだけになる。ログイン画面で入力してもらう、メールサーバーの送信済みメールから推定する、ドメインごとに設定する、などの案がある。多くのメールソフト（Thunderbird、Outlook、Roundcube など）は下書きを送るときに自分の差出人設定で From を付け直すので、必須ではない。M6 で実際のソフトから送って確かめてから決める
+- [ ] 下書きの本文にメールの署名を付けるか。付けるなら、どこに署名を持つか（ログイン画面、設定ファイル、Claude に任せる）。差出人の表示名と合わせて、必須ではないので後で決める
 - [ ] Client ID Metadata Documents（MCP で SHOULD）に対応するか。claude.ai が事前登録だけで動けば当面は不要
 - [x] プロダクト名の確定: `php-imap-mcp` に決定（IMAP専用のため）。パッケージ名は `cartwright-jp/php-imap-mcp`（2026-11-11 時点で Packagist・GitHub ともに同名なし、`cartwright-jp` も未使用）
 - [x] GitHub Organization `cartwright-jp` を作成する（2026-11-11 作成済み）
