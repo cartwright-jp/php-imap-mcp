@@ -66,4 +66,11 @@ final class EchoTool implements Tool
 
         return ToolResult::success($text, ['text' => $text]);
     }
+
+    public function auditArguments(array $arguments): array
+    {
+        $text = $arguments['text'] ?? null;
+
+        return ['text_length' => is_string($text) ? mb_strlen($text, 'UTF-8') : null];
+    }
 }

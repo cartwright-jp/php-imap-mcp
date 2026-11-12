@@ -31,9 +31,11 @@ jobs:
       - run: composer stan
       - name: E2E smoke test (curl against the PHP built-in server)
         run: |
-          php -S 127.0.0.1:18080 -t public > /tmp/php-server.log 2>&1 &
+          token="$(php tests/e2e/make-config.php /tmp/php-imap-mcp-e2e)"
+          PHP_IMAP_MCP_CONFIG=/tmp/php-imap-mcp-e2e/config.php php -S 127.0.0.1:18080 -t public > /tmp/php-server.log 2>&1 &
           sleep 1
-          composer test:e2e
+          MCP_TOKEN="$token" composer test:e2e
+          php bin/check-config.php /tmp/php-imap-mcp-e2e/config.php
       - if: failure()
         run: cat /tmp/php-server.log
 

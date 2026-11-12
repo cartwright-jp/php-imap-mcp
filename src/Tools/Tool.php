@@ -24,4 +24,14 @@ interface Tool
      * @throws InvalidToolArguments when the arguments do not satisfy inputSchema
      */
     public function call(array $arguments): ToolResult;
+
+    /**
+     * What the audit log may record about the arguments (SPEC.md 7). Called before the arguments are validated,
+     * so it must cope with any input. Never include message bodies, passwords or tokens.
+     *
+     * @param array<string, mixed> $arguments
+     *
+     * @return array<string, mixed>
+     */
+    public function auditArguments(array $arguments): array;
 }
