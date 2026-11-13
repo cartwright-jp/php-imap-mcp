@@ -310,7 +310,9 @@ final class ImapMailbox implements Mailbox
 
     public function appendDraft(string $folder, string $message, string $messageId): ?int
     {
-        $this->open($folder, false); // reports a missing folder as such
+        // Opened writable (SELECT): it reports a missing folder as such, and Courier-IMAP (XServer) refuses an
+        // APPEND to the folder that is open read-only ("NO Current box is selected READ-ONLY.", M6).
+        $this->open($folder, true);
         $raw = self::encodeName($folder);
         $imap = $this->connection();
         $flags = ['\\Draft', '\\Seen'];
@@ -381,7 +383,11 @@ final class ImapMailbox implements Mailbox
         if ($this->imap !== null) {
             return $this->imap;
         }
-        $imap = new ImapProtocol(WebklexConfig::make([]), $this->verifyCertificate, $this->account->imapEncryption);
+        $imap = new LiteralSafeImapProtocol(
+            WebklexConfig::make([]),
+            $this->verifyCertificate,
+            $this->account->imapEncryption,
+        );
         $imap->setConnectionTimeout($this->timeoutSec);
         // stream_socket_client() reports TLS and DNS problems as PHP warnings naming the host; keep them out
         // of the output and report one safe error instead.
