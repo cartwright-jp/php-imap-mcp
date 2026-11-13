@@ -527,6 +527,40 @@ final class OAuthFlowTest extends TestCase
         self::assertSame(403, $app->handle($this->mcp('x', self::BROWSER_IP))->status);
     }
 
+    public function testPlainHttpIsRefusedOnEveryRoute(): void
+    {
+        $app = $this->app();
+        $requests = [
+            'mcp' => $this->mcp(null),
+            'token' => $this->post('/mcp/token', ['grant_type' => 'refresh_token', 'refresh_token' => 'x']),
+            'metadata' => $this->get('/mcp/.well-known/oauth-protected-resource', [], '', self::SERVER_IP),
+            'login page' => $this->get('/mcp/authorize', $this->authorizeQuery(TestConfig::pkce())),
+        ];
+
+        foreach ($requests as $name => $request) {
+            $response = $app->handle(self::overPlainHttp($request));
+            self::assertSame(403, $response->status, $name);
+            self::assertStringContainsString('HTTPS', $response->body, $name);
+            self::assertArrayNotHasKey('Set-Cookie', $response->headers, $name);
+            self::assertArrayNotHasKey('WWW-Authenticate', $response->headers, $name);
+        }
+        self::assertSame([], $this->audit->events('auth_failed'), 'refused before authentication: no lockout count');
+    }
+
+    public function testPlainHttpWorksWhenTheResourceItselfIsHttpForLocalTesting(): void
+    {
+        $config = TestConfig::config(
+            ['auth' => ['oauth' => ['resource' => 'http://127.0.0.1:18080/']]],
+            $this->dir->path . '/var',
+        );
+
+        $metadata = $this->app($config)->handle(
+            self::overPlainHttp($this->get('/.well-known/oauth-protected-resource', [], '', self::SERVER_IP)),
+        );
+
+        self::assertSame(200, $metadata->status);
+    }
+
     public function testRouting(): void
     {
         self::assertSame(Application::ROUTE_AUTHORIZE, Application::route('/mcp/authorize'));
@@ -660,6 +694,28 @@ final class OAuthFlowTest extends TestCase
             'resource' => TestConfig::RESOURCE,
             'scope' => 'mail',
         ];
+    }
+
+    private static function overPlainHttp(Request $request): Request
+    {
+        $headers = [];
+        foreach (['Authorization', 'Content-Type', 'Cookie', 'MCP-Protocol-Version', 'Mcp-Method'] as $name) {
+            $value = $request->header($name);
+            if ($value !== null) {
+                $headers[$name] = $value;
+            }
+        }
+
+        return new Request(
+            $request->method,
+            $headers,
+            $request->body,
+            $request->bodyTooLarge,
+            $request->remoteAddr,
+            $request->path,
+            $request->queryString,
+            false,
+        );
     }
 
     private function firstAccount(): Account

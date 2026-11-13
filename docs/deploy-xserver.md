@@ -15,21 +15,62 @@ claude.ai の公式ドキュメント（2026-11-12 に確認）による前提:
 - トークンのエンドポイントは10秒（リフレッシュは30秒）で時間切れになる
 - 認可サーバーのメタデータは `/.well-known/oauth-authorization-server` を先に、次に `/.well-known/openid-configuration` を探す。MCP の URL にパス（`/mcp/`）があるときにどの場所を探すかは書かれていないので、サイト直下からも見えるようにしておく（手順 5）
 - 別のホストへのリダイレクト（301、302 など）があると Authorization ヘッダーが落ちて失敗する。`http://` から `https://` への転送や、`www` の有無の転送に注意する
+- MCP の URL は末尾のスラッシュなし（`https://example.com/mcp`）で扱われる。Apache は既定でこれを `/mcp/` へ 301 で転送し、claude.ai はそれを失敗として扱う。`public/.htaccess` の `DirectorySlash Off` と `RewriteOptions AllowNoSlash` はそのためにある（2026-11-12 に XServer で確認）
 
 ## 1. XServer の準備
 
-1. サーバーパネルの「SSH設定」で SSH を有効にし、公開鍵を登録する（ポートは 10022）
-2. 「PHP Ver.切替」で、MCP を置くドメインの PHP を 8.1 以上にする（8.3 推奨）
-3. 「SSL設定」で、そのドメインに無料独自SSLが入っていることを確かめる
-4. SSH でつなぎ、コマンドラインの PHP を確かめる。Web の PHP とコマンドラインの PHP は別物で、`php` が古い版を指すことがある
+SSH のクライアントは、手元の WSL（Ubuntu）の OpenSSH（`ssh`、`scp`）を使う。手順 2 の `git archive` も WSL で行う。
+
+1. 手元の WSL で鍵を作る（サーバーパネルで鍵を作ってダウンロードする方法もあるが、秘密鍵がブラウザを通らないよう手元で作る）
+
+   ```sh
+   ssh-keygen -t ed25519
+   cat ~/.ssh/id_ed25519.pub   # この1行を次の手順で貼る
+   ```
+
+2. サーバーパネルの「SSH設定」で SSH を有効にし、「公開鍵登録・更新」に公開鍵を貼る
+3. 手元の `~/.ssh/config` に接続先を書く。以下 `ssh xserver` でつながる
+
+   ```
+   Host xserver
+       HostName svXXXXX.xserver.jp
+       Port 10022
+       User ACCOUNT
+       IdentityFile ~/.ssh/id_ed25519
+   ```
+
+4. 「PHP Ver.切替」で、MCP を置くドメインの PHP を 8.1 以上にする（8.3 推奨）
+5. 「SSL設定」で、そのドメインに無料独自SSLが入っていることを確かめる。初期ドメイン（`ACCOUNT.xsrv.jp`）には最初は入っていないので、「独自SSL設定追加」で追加する（反映まで最大1時間ほど）
+6. `ssh xserver` でつなぎ、コマンドラインの PHP を確かめる。Web の PHP とコマンドラインの PHP は別物で、`php` が古い版を指すことがある
 
    ```sh
    php -v
-   ls /usr/bin/php*        # 版ごとのコマンド（php8.3 など）があればそれを使う
-   php -m | grep -i sodium # sodium 拡張が必要
+   ls /usr/bin/php*        # 版ごとのコマンド（php8.3 など）を探す
    ```
 
-   以下、ここで決めた PHP のコマンドを `php` と書く。
+   `php` が 8.1 より古ければ、`~/bin` に新しい版へのリンクを作り、先に見つかるようにする:
+
+   ```sh
+   mkdir -p ~/bin
+   ln -s /usr/bin/php8.3 ~/bin/php   # 上で見つかった版
+   echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bash_profile
+   source ~/.bash_profile
+   php -v                             # 8.3 になっていること
+   php -m | grep -i sodium            # sodium 拡張が必要
+   ```
+
+   `~/.bash_profile` は、ログインして使うシェルでだけ読まれる。`ssh xserver 'コマンド'` のように直接実行すると古い `php` が使われるので、そのときは `~/bin/php` と書くか、`bash -lc 'コマンド'` で包む
+
+7. Composer を `~/bin` に入れる（[公式の手順](https://getcomposer.org/download/)。インストーラーの検証用ハッシュは公式ページの最新の値を使う）
+
+   ```sh
+   cd ~/bin
+   php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+   php -r "if (hash_file('sha384', 'composer-setup.php') === '公式ページのハッシュ') { echo 'Installer verified'.PHP_EOL; } else { echo 'Installer corrupt'.PHP_EOL; unlink('composer-setup.php'); exit(1); }"
+   php composer-setup.php --filename=composer
+   rm composer-setup.php
+   composer --version
+   ```
 
 ## 2. ファイルを置く
 
@@ -38,24 +79,21 @@ claude.ai の公式ドキュメント（2026-11-12 に確認）による前提:
 ```sh
 # 手元の WSL で、リポジトリの直下から
 git archive --format=tar.gz -o /tmp/php-imap-mcp.tar.gz main
-scp -P 10022 /tmp/php-imap-mcp.tar.gz ACCOUNT@svXXXXX.xserver.jp:~/
+scp /tmp/php-imap-mcp.tar.gz xserver:~/
 ```
 
 ```sh
 # XServer で
-mkdir ~/php-imap-mcp && tar xzf ~/php-imap-mcp.tar.gz -C ~/php-imap-mcp && rm ~/php-imap-mcp.tar.gz
+mkdir -p ~/php-imap-mcp && tar xzf ~/php-imap-mcp.tar.gz -C ~/php-imap-mcp && rm ~/php-imap-mcp.tar.gz
 cd ~/php-imap-mcp
-```
-
-依存を入れる。XServer に Composer がなければ、`~/bin` に入れる（[公式の手順](https://getcomposer.org/download/)）。
-
-```sh
 composer install --no-dev --optimize-autoloader
 ```
 
-Composer が使えないときは、手元の WSL で `composer install --no-dev` をした `vendor/` ごと送ってもよい（`composer.lock` は PHP 8.1 で解決してあるので、XServer の PHP 8.1 以上で動く）。
+`composer install` が sodium や PHP の版で止まったら、手順 1 の 6 に戻ってコマンドラインの PHP を確かめる。
 
 本体は `~/php-imap-mcp/`（公開ディレクトリの外）に置く。公開ディレクトリに置くのは、手順 4 の2ファイルだけ。
+
+更新するときは、同じように送って展開し（`config.php` と `var/` は上書きされない）、`composer install --no-dev --optimize-autoloader` をやり直す。`public/` の2ファイルが変わったときは、手順 4 もやり直す（`index.php` の `APP_ROOT` を書き直すのを忘れない）。
 
 ## 3. 設定を書く
 
@@ -113,30 +151,38 @@ const APP_ROOT = '/home/ACCOUNT/php-imap-mcp';
 
 ## 6. 外から確かめる
 
-`auth.allowed_ips` に自宅の IP を一時的に足してから、手元で実行する。期待する結果と違えば、そこで止めて原因を調べる。
+`auth.allowed_ips` に、curl を送る場所の IP を一時的に足す。サーバーに SSH でつないで、サーバー自身から送ると簡単（足す IP は `getent hosts example.com` で分かるサーバーの IP）。期待する結果と違えば、そこで止めて原因を調べる。
+
+トークンなしの `401` は認証の失敗として数えられ、10分に10回で、その IP が15分止められる（`403` と「Too many authentication failures」）。確認を繰り返して止められたら、15分待つか、`~/php-imap-mcp/var/lockout/` のその IP のファイル（IP の SHA-256 が名前）を消す:
+
+```sh
+rm ~/php-imap-mcp/var/lockout/$(printf %s 203.0.113.10 | sha256sum | cut -d' ' -f1).json
+```
 
 ```sh
 u=https://example.com
 
-# MCP 本体: 401 と、メタデータの場所を示すヘッダー
+# MCP 本体: 401 と、メタデータの場所を示すヘッダー。スラッシュなしも 301 でなく 401 になること
+curl -si -X POST "$u/mcp" -H 'Content-Type: application/json' -d '{}' | grep -iE '^HTTP|^location|^www-authenticate'
 curl -si -X POST "$u/mcp/" -H 'Content-Type: application/json' -d '{}' | grep -iE '^HTTP|^www-authenticate'
 
 # 保護リソースのメタデータ（2か所）: "resource":"https://example.com/mcp/"
 curl -s "$u/mcp/.well-known/oauth-protected-resource"
 curl -s "$u/.well-known/oauth-protected-resource/mcp"
 
+# HTTP は拒否される: 403 と HTTPS required（転送はしない）
+curl -si -X POST "http://example.com/mcp" -d '{}' | grep -iE '^HTTP|HTTPS'
+
 # 認可サーバーのメタデータ（3か所とも同じ JSON）: "issuer":"https://example.com/mcp"
 curl -s "$u/.well-known/oauth-authorization-server/mcp"
 curl -s "$u/.well-known/openid-configuration/mcp"
 curl -s "$u/mcp/.well-known/openid-configuration"
 
-# http から https への転送がドメインをまたがないこと（Location が https://example.com/... であること）
-curl -si "http://example.com/mcp/" | grep -iE '^HTTP|^location'
 ```
 
 ブラウザ（スマホの回線など、許可していない IP でもよい）で `https://example.com/mcp/authorize` を開き、「ログインを続けられません」というエラー画面が出ること（ログイン画面が IP 制限の外にあることの確認）。
 
-確かめ終わったら、`auth.allowed_ips` から自宅の IP を外し、許可していない IP から MCP 本体が `403` になることを確かめる:
+確かめ終わったら、`auth.allowed_ips` から一時的に足した IP を外し、許可していない IP（手元など）から MCP 本体が `403` になることを確かめる:
 
 ```sh
 curl -si -X POST "$u/mcp/" -d '{}' | head -1   # HTTP/1.1 403
@@ -150,6 +196,8 @@ curl -si -X POST "$u/mcp/" -d '{}' | head -1   # HTTP/1.1 403
 4. 「接続」を押すと、ログイン画面が開く。メールアドレスとパスワードを入力する
 5. claude.ai に戻り、コネクタが「接続済み」になれば成功
 
+接続できると、監査ログに `auth_failed`（`missing`。最初の 401）、`oauth_login`、`oauth_token`、`tools/call` の順に記録される。XServer のアクセスログは、サーバーパネルで記録を有効にしないと残らないので、問題を調べるときは監査ログが頼りになる。
+
 失敗したときは、`~/php-imap-mcp/var/logs/audit-YYYY-MM-DD.jsonl` の最後の数行を見る（`oauth_client_failed` はクライアント ID かシークレットの誤り、`oauth_grant_failed` はコードや `resource` の不一致、`auth_failed` はトークンの問題）。ログにパスワードとトークンは記録されない。
 
 ## 8. 確認項目
@@ -158,23 +206,26 @@ curl -si -X POST "$u/mcp/" -d '{}' | head -1   # HTTP/1.1 403
 
 **XServer**
 
-- [ ] コマンドラインの PHP の版と、sodium 拡張の有無（手順 1）
-- [ ] Web の PHP で sodium が使えること（手順 6 の MCP 本体が `500` でなく `401` になれば使えている）
-- [ ] `public/.htaccess` の `RewriteRule` が動くこと（手順 6 の `/mcp/.well-known/…` が JSON を返す）
-- [ ] Authorization ヘッダーが PHP に届くこと（手順 7 で接続した後、ツールが動けば届いている）
-- [ ] サイト直下の `.htaccess` の転送が動くこと（手順 6 の `/.well-known/…/mcp`）
-- [ ] 国外IPアクセス制限など、XServer 側のアクセス制限が Anthropic からの接続を妨げないこと
+- [x] コマンドラインの PHP の版と、sodium 拡張の有無、Composer が入るか（手順 1）: 8.3 を `~/bin/php` で使う。sodium あり。Composer は `~/bin` に入れる
+- [x] Web の PHP で sodium が使えること（手順 6 の MCP 本体が `500` でなく `401` になれば使えている）
+- [x] `public/.htaccess` の `RewriteRule` が動くこと（手順 6 の `/mcp/.well-known/…` が JSON を返す）。スラッシュなしの `/mcp` は `DirectorySlash Off` と `AllowNoSlash` が必要だった
+- [x] Authorization ヘッダーが PHP に届くこと（手順 7 で接続した後、ツールが動けば届いている）
+- [x] サイト直下の `.htaccess` の転送が動くこと（手順 6 の `/.well-known/…/mcp`）
+- [x] 国外IPアクセス制限など、XServer 側のアクセス制限が Anthropic からの接続を妨げないこと（初期設定のままで妨げなかった）
+- [x] HTTPS かどうかを PHP から判定できること: HTTPS では `$_SERVER['HTTPS']` が `on`、HTTP では未設定。前段の nginx が `X-Forwarded-Proto` を書き換えるので、偽れない。HTTP のリクエストは `403` で拒否される（手順 6 で確かめる）
+- [x] サーバーのキャッシュ（`Ngx_Cache_AllCacheMode`）が応答を溜めないこと: すべての応答に `Cache-Control: no-store` が付く
 - [ ] PHP の実行時間制限に当たらないこと（大きなメールの `get_email`、`search_emails` の上限件数で）
 
 **claude.ai の OAuth**
 
-- [ ] クライアント ID とシークレットの事前登録で接続できる（手順 7）
-- [ ] コールバック URL が `https://claude.ai/api/mcp/auth_callback` で合っている
-- [ ] どの場所の認可サーバーのメタデータが使われたか（アクセスログで確かめる。サイト直下の転送が要らないと分かれば、手順 5 を任意にできる）
+- [x] クライアント ID とシークレットの事前登録で接続できる（手順 7。2026-11-12 確認）
+- [x] コールバック URL が `https://claude.ai/api/mcp/auth_callback` で合っている
+- [x] 接続元が Anthropic の送信元の範囲に入っている（`160.79.106.x`、`160.79.104.0/21` の中）
+- [ ] どの場所の認可サーバーのメタデータが使われたか（アクセスログの記録を有効にして確かめる。サイト直下の転送が要らないと分かれば、手順 5 を任意にできる）
 - [ ] 1時間（`access_ttl_sec`）以上たってから使っても、ログインし直さずに動く（監査ログに `oauth_token` の refresh が記録される）
 - [ ] Web で接続したコネクタが、スマホのアプリでもそのまま使える
 - [ ] `php bin/revoke-grant.php <grant>` で取り消すと、次の利用でログインを求められる
-- [ ] claude.ai が使う MCP 仕様の版（監査ログの `tools/call` の `protocol` と `clientInfo`）
+- [x] claude.ai が使う MCP 仕様の版（監査ログの `tools/call` の `protocol` と `clientInfo`）: `2026-07-28`。`clientInfo` の名前は `claude-code`
 
 **受け入れ基準（SPEC.md 11章）**
 

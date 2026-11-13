@@ -11,6 +11,7 @@ use Cartwright\ImapMcp\Auth\OAuth\AccessTokenAuthenticator;
 use Cartwright\ImapMcp\Auth\OAuth\AuthorizeEndpoint;
 use Cartwright\ImapMcp\Auth\OAuth\CredentialVerifier;
 use Cartwright\ImapMcp\Auth\OAuth\IdStore;
+use Cartwright\ImapMcp\Auth\OAuth\LoginPage;
 use Cartwright\ImapMcp\Auth\OAuth\Metadata;
 use Cartwright\ImapMcp\Auth\OAuth\OAuthSettings;
 use Cartwright\ImapMcp\Auth\OAuth\Sealer;
@@ -86,6 +87,16 @@ final class Application
         $authenticator = new AccessTokenAuthenticator($oauth, new Sealer($oauth->key), $this->ids);
         $guard = new Guard($this->config, $authenticator, $this->lockout, $audit);
         $route = self::route($request->path);
+        // Plain HTTP would carry passwords and tokens in the clear. Refused, not redirected: by the time a redirect
+        // arrives, the secret has already been sent, and a refusal makes the mistake visible (SPEC.md 7).
+        if (!$request->secure && $oauth->requiresHttps()) {
+            return $route === self::ROUTE_AUTHORIZE
+                ? LoginPage::error('HTTPS（https://）で開いてください。', 403)
+                : Response::json(403, [
+                    'jsonrpc' => '2.0',
+                    'error' => ['code' => ErrorCode::INVALID_REQUEST, 'message' => 'HTTPS required'],
+                ]);
+        }
         if ($route !== self::ROUTE_MCP) {
             return $this->handleOAuth($route, $request, $oauth, $guard, $audit);
         }

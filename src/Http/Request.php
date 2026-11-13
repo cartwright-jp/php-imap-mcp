@@ -26,6 +26,8 @@ final class Request
         public readonly string $path = '/',
         /** Raw query string without '?'. */
         public readonly string $queryString = '',
+        /** Arrived over HTTPS. fromGlobals() reads it from the web server; constructed requests default to true. */
+        public readonly bool $secure = true,
     ) {
         foreach ($headers as $name => $value) {
             $this->headers[strtolower($name)] = $value;
@@ -79,7 +81,25 @@ final class Request
             is_string($remoteAddr) ? $remoteAddr : '',
             $path === '' ? '/' : $path,
             $query,
+            self::isHttps($_SERVER),
         );
+    }
+
+    /**
+     * Whether the web server received the request over TLS. Only the server's own variables count: forwarded
+     * headers (X-Forwarded-Proto and the like) can be sent by any client. On XServer the front nginx sets HTTPS
+     * and overwrites X-Forwarded-Proto.
+     *
+     * @param array<mixed> $server $_SERVER
+     */
+    public static function isHttps(array $server): bool
+    {
+        $https = $server['HTTPS'] ?? '';
+        if (is_string($https) && $https !== '' && strtolower($https) !== 'off') {
+            return true;
+        }
+
+        return ($server['REQUEST_SCHEME'] ?? '') === 'https';
     }
 
     public function header(string $name): ?string

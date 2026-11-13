@@ -4,7 +4,11 @@ Options -Indexes
 DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
+    # claude.ai uses the MCP URL without the trailing slash (https://example.com/mcp). Answer it directly:
+    # the default 301 to /mcp/ makes the connector fail. AllowNoSlash lets the rules below see that request.
+    DirectorySlash Off
     RewriteEngine On
+    RewriteOptions AllowNoSlash
     # Pass the Authorization header to PHP (XServer may drop it otherwise).
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
