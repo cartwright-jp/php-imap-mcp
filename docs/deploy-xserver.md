@@ -224,7 +224,7 @@ curl -si -X POST "$u/mcp/" -d '{}' | head -1   # HTTP/1.1 403
 - [ ] どの場所の認可サーバーのメタデータが使われたか（アクセスログの記録を有効にして確かめる。サイト直下の転送が要らないと分かれば、手順 5 を任意にできる）
 - [x] 1時間（`access_ttl_sec`）以上たってから使っても、ログインし直さずに動く（監査ログに `oauth_token` の refresh が記録される）（2026-11-13。refresh が約1時間おきに記録され、ログインし直さずに使えた）
 - [x] Web で接続したコネクタが、スマホのアプリでもそのまま使える（2026-11-13）
-- [ ] `php bin/revoke-grant.php <grant>` で取り消すと、次の利用でログインを求められる
+- [x] `php bin/revoke-grant.php <grant>` で取り消すと、次の利用でログインを求められる（2026-11-13: 取り消し後の古いトークンは `auth_failed`（`reason: revoked`）で拒否され、claude.ai から再ログインすると新しい grant で `oauth_login` と `oauth_token` が記録された。ロックアウトの確認の直後に再ログインする場合は、締め出しが解けるまで（15分）待つか、`var/lockout/` の該当ファイルを消す）
 - [x] claude.ai が使う MCP 仕様の版（監査ログの `tools/call` の `protocol` と `clientInfo`）: `2026-07-28`。`clientInfo` の名前は `claude-code`
 
 **受け入れ基準（SPEC.md 11章）**
