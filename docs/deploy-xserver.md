@@ -214,7 +214,7 @@ curl -si -X POST "$u/mcp/" -d '{}' | head -1   # HTTP/1.1 403
 - [x] 国外IPアクセス制限など、XServer 側のアクセス制限が Anthropic からの接続を妨げないこと（初期設定のままで妨げなかった）
 - [x] HTTPS かどうかを PHP から判定できること: HTTPS では `$_SERVER['HTTPS']` が `on`、HTTP では未設定。前段の nginx が `X-Forwarded-Proto` を書き換えるので、偽れない。HTTP のリクエストは `403` で拒否される（手順 6 で確かめる）
 - [x] サーバーのキャッシュ（`Ngx_Cache_AllCacheMode`）が応答を溜めないこと: すべての応答に `Cache-Control: no-store` が付く
-- [ ] PHP の実行時間制限に当たらないこと（大きなメールの `get_email`、`search_emails` の上限件数で）
+- [x] PHP の実行時間制限に当たらないこと（大きなメールの `get_email`、`search_emails` の上限件数で）（2026-11-13。普段の利用で遅さや時間切れはなかった）
 
 **claude.ai の OAuth**
 
@@ -222,18 +222,18 @@ curl -si -X POST "$u/mcp/" -d '{}' | head -1   # HTTP/1.1 403
 - [x] コールバック URL が `https://claude.ai/api/mcp/auth_callback` で合っている
 - [x] 接続元が Anthropic の送信元の範囲に入っている（`160.79.106.x`、`160.79.104.0/21` の中）
 - [ ] どの場所の認可サーバーのメタデータが使われたか（アクセスログの記録を有効にして確かめる。サイト直下の転送が要らないと分かれば、手順 5 を任意にできる）
-- [ ] 1時間（`access_ttl_sec`）以上たってから使っても、ログインし直さずに動く（監査ログに `oauth_token` の refresh が記録される）
-- [ ] Web で接続したコネクタが、スマホのアプリでもそのまま使える
+- [x] 1時間（`access_ttl_sec`）以上たってから使っても、ログインし直さずに動く（監査ログに `oauth_token` の refresh が記録される）（2026-11-13。refresh が約1時間おきに記録され、ログインし直さずに使えた）
+- [x] Web で接続したコネクタが、スマホのアプリでもそのまま使える（2026-11-13）
 - [ ] `php bin/revoke-grant.php <grant>` で取り消すと、次の利用でログインを求められる
 - [x] claude.ai が使う MCP 仕様の版（監査ログの `tools/call` の `protocol` と `clientInfo`）: `2026-07-28`。`clientInfo` の名前は `claude-code`
 
 **受け入れ基準（SPEC.md 11章）**
 
-- [ ] `list_folders`: 日本語のフォルダ名が正しく出る
-- [ ] `search_emails`: 日本語の件名・差出人で検索できる
-- [ ] `get_email`: ISO-2022-JP、Shift_JIS、HTML だけのメールが文字化けせずに読める。添付ファイルは名前と大きさだけが出る
+- [x] `list_folders`: 日本語のフォルダ名が正しく出る（2026-11-13。`INBOX.送信済みアイテム` などが正しく出た）
+- [x] `search_emails`: 日本語の件名・差出人で検索できる（2026-11-13）
+- [ ] `get_email`: ISO-2022-JP、Shift_JIS、HTML だけのメールが文字化けせずに読める。添付ファイルは名前と大きさだけが出る（2026-11-13。日本語のメールは読めた。ISO-2022-JP・Shift_JIS・HTML だけ・添付付きを1通ずつ確かめるのは未）
 - [x] `save_draft`: 下書きフォルダ（`INBOX.Drafts`）に保存される（2026-11-13。Courier-IMAP は読み取り専用で開いたフォルダへの APPEND を拒否するので、書き込み可能で開いてから保存するよう直した）
 - [ ] 保存した下書きを、パソコンのメールソフトや Web メールで開ける。注意: Android の Gmail アプリは、IMAP の下書きフォルダを表示せず、下書きを端末で独自に管理する（2026-11-13 確認）。スマホでは、下書きフォルダを同期するメールアプリを使う
 - [ ] 保存した下書きをメールソフトから送ったとき、差出人の表示がどうなるか（SPEC.md 12章の表示名の検討に使う）
 - [x] ログイン画面でパスワードを続けて間違えると、ロックアウトされる（2026-11-13。10回で「試行回数が多すぎます。」。監査ログに `oauth_login_failed` が10件と、`lockout_started` が IP とメールアドレスの両方で記録され、パスワードとメールアドレスは失敗の記録に残らない）。ログイン画面は claude.ai が開く URL の形でないと 400 になるので、試すときは `response_type`・`client_id`・`redirect_uri`・`code_challenge`・`resource` を付けた URL を使う
-- [ ] 監査ログに `tools/call` が記録され、パスワード、トークン、本文が含まれない
+- [x] 監査ログに `tools/call` が記録され、パスワード、トークン、本文が含まれない（2026-11-13。下書きは件名・宛先・`body_chars`（文字数）だけ）
