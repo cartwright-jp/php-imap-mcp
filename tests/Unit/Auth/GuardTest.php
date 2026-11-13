@@ -118,43 +118,37 @@ final class GuardTest extends TestCase
         ));
     }
 
-    public function testRepeatedFailuresLockTheIpOutEvenForAValidToken(): void
+    public function testFailedTokensAreLoggedButDoNotLockTheIpOut(): void
     {
-        $guard = $this->guard(TestConfig::config(['auth' => ['lockout' => ['max_failures' => 3]]]));
-
-        for ($i = 0; $i < 3; $i++) {
-            self::assertSame(401, $this->refused($guard->check($this->request('Bearer wrong')))->status);
-        }
-        $response = $this->refused($guard->check($this->request('Bearer ' . TestConfig::accessToken())));
-
-        self::assertSame(403, $response->status);
-        self::assertStringContainsString('Too many authentication failures', $response->body);
-        self::assertCount(3, $this->audit->events('auth_failed'), 'requests while banned are not logged one by one');
-        self::assertSame([['event' => 'lockout_started', 'ban_sec' => 900]], $this->audit->events('lockout_started'));
-    }
-
-    public function testExpiredTokensDoNotCountTowardsTheLockout(): void
-    {
+        // Sealed tokens cannot be guessed, and every claude.ai user shares Anthropic's addresses: counting
+        // failures here would only let anyone lock the owner out (M7 review, 2026-11-13).
         $guard = $this->guard(TestConfig::config(['auth' => ['lockout' => ['max_failures' => 2]]]));
         $expired = 'Bearer ' . TestConfig::accessToken(['exp' => time() - 1]);
 
-        $guard->check($this->request($expired));
-        $guard->check($this->request($expired));
+        foreach (['Bearer wrong', null, 'Bearer wrong', null, $expired] as $authorization) {
+            self::assertSame(401, $this->refused($guard->check($this->request($authorization)))->status);
+        }
 
         self::assertInstanceOf(Principal::class, $guard->check($this->request('Bearer ' . TestConfig::accessToken())));
+        self::assertCount(5, $this->audit->events('auth_failed'));
+        self::assertSame([], $this->audit->events('lockout_started'));
+        self::assertSame([], glob($this->dir->path . '/lockout/*'));
     }
 
-    public function testSuccessResetsTheFailureCount(): void
+    public function testAnIpBannedElsewhereIsRefusedWithoutLookingAtTheToken(): void
     {
-        $guard = $this->guard(TestConfig::config(['auth' => ['lockout' => ['max_failures' => 2]]]));
+        // The token endpoint still bans an IP after repeated client authentication failures.
+        $config = TestConfig::config(['auth' => ['lockout' => ['max_failures' => 2]]]);
+        $lockout = new Lockout($this->dir->path . '/lockout', $config->lockout);
+        $lockout->recordFailure(self::ALLOWED_IP);
+        $lockout->recordFailure(self::ALLOWED_IP);
 
-        $guard->check($this->request('Bearer wrong'));
-        $first = $guard->check($this->request('Bearer ' . TestConfig::accessToken()));
-        $guard->check($this->request('Bearer wrong'));
-        $second = $guard->check($this->request('Bearer ' . TestConfig::accessToken()));
+        $token = 'Bearer ' . TestConfig::accessToken();
+        $response = $this->refused($this->guard($config)->check($this->request($token)));
 
-        self::assertInstanceOf(Principal::class, $first);
-        self::assertInstanceOf(Principal::class, $second, 'two failures in total, but never two in a row');
+        self::assertSame(403, $response->status);
+        self::assertStringContainsString('Too many authentication failures', $response->body);
+        self::assertSame([], $this->audit->events('auth_failed'), 'refused before the token is looked at');
     }
 
     private function guard(?Config $config = null): Guard

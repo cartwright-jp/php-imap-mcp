@@ -106,7 +106,11 @@ final class TokenEndpoint
         }
         // OAuth 2.1: an authorization code is used once. Marked last, so a failed attempt does not burn it.
         if (!$this->ids->markOnce(IdStore::USED_CODES, $code->string('jti'), $code->int('exp'))) {
-            return $this->grantError('code already used');
+            // A second use means the code leaked: the tokens issued for it are revoked (OAuth 2.1 4.1.3).
+            $this->revokeGrant($code->string('gid'));
+            $this->audit->record('oauth_code_reuse', ['client' => $client->id, 'grant' => $code->string('gid')]);
+
+            return $this->grantError('code already used; the grant is revoked');
         }
 
         $this->audit->record('oauth_token', [

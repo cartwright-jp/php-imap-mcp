@@ -132,11 +132,13 @@ final class AuthorizeEndpoint
             return LoginPage::error('登録されていないクライアントです。');
         }
         // CSRF: the form must come from this server's page in this browser (login CSRF would sign the victim
-        // in to the attacker's mailbox).
+        // in to the attacker's mailbox). The page sends Referrer-Policy: same-origin, so browsers put the real
+        // origin on this POST; "null" or none is refused. Both checks are needed: on a shared domain
+        // (ACCOUNT.xsrv.jp), a neighbouring site may be able to plant the cookie, but not forge the Origin.
         $origin = $request->header('Origin');
         $cookie = $request->cookie(self::CSRF_COOKIE);
         if (
-            ($origin !== null && $origin !== 'null' && $origin !== $this->settings->origin())
+            $origin !== $this->settings->origin()
             || $cookie === null || !hash_equals($login->string('csrf'), $cookie)
         ) {
             return LoginPage::error('ブラウザの確認に失敗しました（Cookie を有効にしてください）。', 403);
@@ -154,6 +156,9 @@ final class AuthorizeEndpoint
         if (
             filter_var($email, FILTER_VALIDATE_EMAIL) === false || !$this->settings->isEmailAllowed($email)
             || $password === '' || strlen($password) > 1024
+            // CR, NUL and other control characters have no place in a password and could end the IMAP
+            // command line early (webklex sends a value without LF as a quoted string).
+            || preg_match('/[\x00-\x1f\x7f]/', $email . $password) === 1
         ) {
             $this->recordFailure($ipKey, $mailKey, 'not_allowed');
 

@@ -112,7 +112,11 @@ final class OAuthImapFlowTest extends TestCase
         self::assertSame(1, preg_match('/pim_login=([^;]*)/', $page->headers['Set-Cookie'], $c));
         $login = $this->app()->handle(new Request(
             'POST',
-            ['Content-Type' => 'application/x-www-form-urlencoded', 'Cookie' => 'pim_login=' . $c[1]],
+            [
+                'Content-Type' => 'application/x-www-form-urlencoded',
+                'Cookie' => 'pim_login=' . $c[1],
+                'Origin' => 'https://example.com', // what the browser sends (Referrer-Policy: same-origin)
+            ],
             http_build_query(['request' => html_entity_decode($m[1]), 'email' => self::EMAIL, 'password' => $password]),
             false,
             '198.51.100.20',
