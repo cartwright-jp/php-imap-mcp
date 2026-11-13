@@ -22,7 +22,7 @@ use Webklex\PHPIMAP\Config as WebklexConfig;
 use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 
 /**
- * ImapMailbox against GreenMail with the Japanese fixtures (SPEC.md 11).
+ * ImapMailbox against the test mail servers (GreenMail, Courier-IMAP, Dovecot) with the Japanese fixtures (SPEC.md 11).
  *
  * Every run uses a fresh folder with a Japanese name, so runs do not affect each other.
  * Skipped when the server is not running, unless IMAP_TEST_REQUIRED=1 (set in CI).
@@ -48,7 +48,9 @@ final class ImapMailboxTest extends TestCase
         if ($imap === null) {
             return;
         }
-        self::$folder = 'テスト受信箱-' . bin2hex(random_bytes(3));
+        // Courier-IMAP (XServer) only allows folders under "INBOX."; GreenMail allows them at the top level.
+        $prefix = self::personalNamespace($imap);
+        self::$folder = $prefix . 'テスト受信箱-' . bin2hex(random_bytes(3));
         $raw = ImapMailbox::encodeName(self::$folder);
         $imap->createFolder($raw)->validatedData();
         foreach (self::FIXTURES as $i => $name) {
@@ -56,7 +58,7 @@ final class ImapMailboxTest extends TestCase
             $imap->appendMessage($raw, $eml)->validatedData();
             self::$uids[$name] = $i + 1; // a new folder starts at UID 1
         }
-        self::$drafts = '下書き-' . bin2hex(random_bytes(3));
+        self::$drafts = $prefix . '下書き-' . bin2hex(random_bytes(3));
         $imap->createFolder(ImapMailbox::encodeName(self::$drafts))->validatedData();
         $imap->logout();
     }
@@ -342,6 +344,25 @@ final class ImapMailboxTest extends TestCase
     /**
      * A raw connection for setting up fixtures. The test server's certificate is self-signed.
      */
+    /**
+     * The personal namespace prefix (RFC 2342), e.g. "INBOX." on Courier; "" when the server has no NAMESPACE.
+     */
+    private static function personalNamespace(ImapProtocol $imap): string
+    {
+        try {
+            $lines = $imap->requestAndResponse('NAMESPACE', [], true)->validatedData();
+        } catch (\Throwable) {
+            return '';
+        }
+        foreach (is_array($lines) ? $lines : [] as $line) {
+            if (is_string($line) && preg_match('/NAMESPACE \(\("([^"]*)"/', $line, $m) === 1) {
+                return $m[1];
+            }
+        }
+
+        return '';
+    }
+
     private static function admin(): ?ImapProtocol
     {
         try {

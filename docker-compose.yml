@@ -1,7 +1,7 @@
-# Test mail server for integration tests (never use in production).
-# Start: docker compose up -d   Stop: docker compose down
+# Test mail servers for integration tests (never use in production).
+# Start: docker compose up -d --wait   Stop: docker compose down
 #
-# Test account (login is the full address, as on XServer):
+# Test account on both (login is the full address, as on XServer):
 #   test@example.com / test-password
 services:
   greenmail:
@@ -17,3 +17,15 @@ services:
       - "127.0.0.1:3025:3025" # SMTP (only used by tests to seed messages)
       - "127.0.0.1:3143:3143" # IMAP
       - "127.0.0.1:3993:3993" # IMAPS
+  # Courier-IMAP, which XServer runs (docker/courier/Dockerfile). The integration tests must pass on both:
+  #   IMAP_TEST_PORT=3994 composer test:integration
+  courier:
+    build: docker/courier
+    ports:
+      - "127.0.0.1:3994:993" # IMAPS
+  # Dovecot, the most common IMAP server (docker/dovecot/Dockerfile):
+  #   IMAP_TEST_PORT=3995 composer test:integration
+  dovecot:
+    build: docker/dovecot
+    ports:
+      - "127.0.0.1:3995:993" # IMAPS
