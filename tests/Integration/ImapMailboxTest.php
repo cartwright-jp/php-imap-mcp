@@ -22,7 +22,7 @@ use Webklex\PHPIMAP\Config as WebklexConfig;
 use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 
 /**
- * ImapMailbox against the test mail servers (GreenMail, Courier-IMAP, Dovecot) with the Japanese fixtures (SPEC.md 11).
+ * ImapMailbox against the test mail servers (Courier-IMAP, Dovecot) with the Japanese fixtures (SPEC.md 11).
  *
  * Every run uses a fresh folder with a Japanese name, so runs do not affect each other.
  * Skipped when the server is not running, unless IMAP_TEST_REQUIRED=1 (set in CI).
@@ -48,7 +48,7 @@ final class ImapMailboxTest extends TestCase
         if ($imap === null) {
             return;
         }
-        // Courier-IMAP (XServer) only allows folders under "INBOX."; GreenMail allows them at the top level.
+        // Courier-IMAP (XServer) only allows folders under "INBOX."; Dovecot keeps them at the top level.
         $prefix = self::personalNamespace($imap);
         self::$folder = $prefix . 'テスト受信箱-' . bin2hex(random_bytes(3));
         $raw = ImapMailbox::encodeName(self::$folder);

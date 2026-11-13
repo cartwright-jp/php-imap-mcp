@@ -1,5 +1,5 @@
 # Courier-IMAP test server for integration tests (never use in production).
-# XServer runs Courier-IMAP, and it is stricter than GreenMail (for example it refuses an APPEND to a folder
+# XServer runs Courier-IMAP, and it is strict about the protocol (for example it refuses an APPEND to a folder
 # that is open read-only), so the integration tests run against both. Built from Debian's own packages.
 #
 # Test account (login is the full address, as on XServer): test@example.com / test-password
