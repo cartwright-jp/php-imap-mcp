@@ -59,7 +59,7 @@ jobs:
       - run: composer test
 
   integration:
-    name: Integration tests (GreenMail)
+    name: Integration tests (GreenMail, Courier-IMAP)
     runs-on: ubuntu-latest
     env:
       IMAP_TEST_REQUIRED: "1"
@@ -73,7 +73,17 @@ jobs:
           tools: composer:v2
       - run: docker compose up -d --wait
       - run: bash tests/bin/wait-for-mail-server.sh
+      - run: bash tests/bin/wait-for-mail-server.sh
+        env:
+          IMAP_TEST_PORT: "3994"
       - run: composer install --no-interaction --no-progress --prefer-dist
-      - run: composer test:integration
+      - name: Integration tests on GreenMail
+        run: composer test:integration
+      # XServer runs Courier-IMAP, which is stricter than GreenMail; both must pass.
+      - name: Integration tests on Courier-IMAP
+        if: success() || failure()
+        run: composer test:integration
+        env:
+          IMAP_TEST_PORT: "3994"
       - if: failure()
         run: docker compose logs

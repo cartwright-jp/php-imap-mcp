@@ -22,7 +22,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
 /**
- * OAuth end to end against GreenMail: the login is a real IMAP login, and the MCP tools then use the
+ * OAuth end to end against the test mail server: the login is a real IMAP login, and the MCP tools then use the
  * credentials sealed in the access token (SPEC.md 7).
  */
 #[CoversClass(Application::class)]

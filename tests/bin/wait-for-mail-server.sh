@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Wait until the test mail server (docker-compose.yml) answers with an IMAP greeting over TLS.
-# An open port is not enough: Docker accepts connections before GreenMail is ready.
+# An open port is not enough: Docker accepts connections before the server is ready.
+# GreenMail is on 3993 (the default), Courier-IMAP on 3994 (IMAP_TEST_PORT=3994).
 set -u
 host="${IMAP_TEST_HOST:-127.0.0.1}"
 port="${IMAP_TEST_PORT:-3993}"
