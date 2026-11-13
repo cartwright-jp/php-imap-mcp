@@ -11,9 +11,8 @@ use Webklex\PHPIMAP\Exceptions\RuntimeException;
 /**
  * webklex's ImapProtocol, but a literal ({n}) waits for the "+" continuation past untagged responses.
  *
- * A server may send untagged data at any time (RFC 9051 7), and Courier-IMAP (XServer) does so before the
- * continuation of an APPEND to the open folder ("* 4 EXISTS", then "+ OK"). webklex expects "+ " as the very
- * next line and gives up, so save_draft failed there.
+ * A server may send untagged data at any time (RFC 9051 7), for example "* 5 EXISTS" for new mail in the
+ * selected folder just before the "+" of an APPEND. webklex expects "+ " as the very next line and gives up.
  */
 class LiteralSafeImapProtocol extends ImapProtocol
 {

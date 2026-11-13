@@ -310,7 +310,9 @@ final class ImapMailbox implements Mailbox
 
     public function appendDraft(string $folder, string $message, string $messageId): ?int
     {
-        $this->open($folder, false); // reports a missing folder as such
+        // Opened writable (SELECT): it reports a missing folder as such, and Courier-IMAP (XServer) refuses an
+        // APPEND to the folder that is open read-only ("NO Current box is selected READ-ONLY.", M6).
+        $this->open($folder, true);
         $raw = self::encodeName($folder);
         $imap = $this->connection();
         $flags = ['\\Draft', '\\Seen'];

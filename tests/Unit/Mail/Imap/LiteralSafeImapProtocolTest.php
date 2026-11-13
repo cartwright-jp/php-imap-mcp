@@ -15,8 +15,9 @@ use Webklex\PHPIMAP\Exceptions\RuntimeException;
 final class LiteralSafeImapProtocolTest extends TestCase
 {
     private const MESSAGE = "Subject: test\r\n\r\nline 1\r\nline 2\r\n";
-    /** What Courier-IMAP sends for an APPEND to the folder that is open (seen on XServer, M6). */
-    private const COURIER_REPLY = "* 4 EXISTS\r\n* 1 RECENT\r\n+ OK\r\nTAG1 OK [APPENDUID 779520765 41] APPEND Ok.\r\n";
+    /** Untagged data (new mail in the selected folder) before the continuation, as RFC 9051 allows. */
+    private const UNTAGGED_FIRST = "* 4 EXISTS\r\n* 1 RECENT\r\n+ OK\r\n"
+        . "TAG1 OK [APPENDUID 779520765 41] APPEND Ok.\r\n";
 
     /** @var resource|null */
     private $server = null;
@@ -25,7 +26,7 @@ final class LiteralSafeImapProtocolTest extends TestCase
 
     public function testAppendWaitsForTheContinuationPastUntaggedResponses(): void
     {
-        $imap = $this->connected(new LiteralSafeImapProtocol(WebklexConfig::make([])), self::COURIER_REPLY);
+        $imap = $this->connected(new LiteralSafeImapProtocol(WebklexConfig::make([])), self::UNTAGGED_FIRST);
 
         $lines = $imap->appendMessage('INBOX.Drafts', self::MESSAGE, ['\\Draft', '\\Seen'])->validatedData();
 
@@ -61,7 +62,7 @@ final class LiteralSafeImapProtocolTest extends TestCase
     public function testPlainWebklexFailsOnTheSameReply(): void
     {
         // Documents why the subclass exists; if webklex fixes this, the subclass can go.
-        $imap = $this->connected(new ImapProtocol(WebklexConfig::make([])), self::COURIER_REPLY);
+        $imap = $this->connected(new ImapProtocol(WebklexConfig::make([])), self::UNTAGGED_FIRST);
 
         $this->expectException(RuntimeException::class);
         $imap->appendMessage('INBOX.Drafts', self::MESSAGE, ['\\Draft', '\\Seen']);
