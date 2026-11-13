@@ -1,3 +1,8 @@
+      - name: Integration tests on Dovecot
+        if: success() || failure()
+        run: composer test:integration
+        env:
+          IMAP_TEST_PORT: "3995"
 name: CI
 
 on:
@@ -59,7 +64,7 @@ jobs:
       - run: composer test
 
   integration:
-    name: Integration tests (GreenMail, Courier-IMAP)
+    name: Integration tests (GreenMail, Courier-IMAP, Dovecot)
     runs-on: ubuntu-latest
     env:
       IMAP_TEST_REQUIRED: "1"
@@ -76,14 +81,22 @@ jobs:
       - run: bash tests/bin/wait-for-mail-server.sh
         env:
           IMAP_TEST_PORT: "3994"
+      - run: bash tests/bin/wait-for-mail-server.sh
+        env:
+          IMAP_TEST_PORT: "3995"
       - run: composer install --no-interaction --no-progress --prefer-dist
       - name: Integration tests on GreenMail
         run: composer test:integration
-      # XServer runs Courier-IMAP, which is stricter than GreenMail; both must pass.
+      # XServer runs Courier-IMAP, which is stricter than GreenMail; Dovecot is the most common. All must pass.
       - name: Integration tests on Courier-IMAP
         if: success() || failure()
         run: composer test:integration
         env:
           IMAP_TEST_PORT: "3994"
+      - name: Integration tests on Dovecot
+        if: success() || failure()
+        run: composer test:integration
+        env:
+          IMAP_TEST_PORT: "3995"
       - if: failure()
         run: docker compose logs

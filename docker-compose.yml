@@ -23,3 +23,9 @@ services:
     build: docker/courier
     ports:
       - "127.0.0.1:3994:993" # IMAPS
+  # Dovecot, the most common IMAP server (docker/dovecot/Dockerfile):
+  #   IMAP_TEST_PORT=3995 composer test:integration
+  dovecot:
+    build: docker/dovecot
+    ports:
+      - "127.0.0.1:3995:993" # IMAPS

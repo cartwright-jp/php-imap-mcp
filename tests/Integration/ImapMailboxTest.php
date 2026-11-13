@@ -22,7 +22,7 @@ use Webklex\PHPIMAP\Config as WebklexConfig;
 use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 
 /**
- * ImapMailbox against the test mail servers (GreenMail and Courier-IMAP) with the Japanese fixtures (SPEC.md 11).
+ * ImapMailbox against the test mail servers (GreenMail, Courier-IMAP, Dovecot) with the Japanese fixtures (SPEC.md 11).
  *
  * Every run uses a fresh folder with a Japanese name, so runs do not affect each other.
  * Skipped when the server is not running, unless IMAP_TEST_REQUIRED=1 (set in CI).

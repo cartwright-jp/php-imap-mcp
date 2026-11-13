@@ -453,7 +453,7 @@ return [
 **自動テスト**
 
 - 単体テスト（PHPUnit）: JSON-RPCの解析、認証、IP判定、ポリシー判定、文字コード変換、引数の検証
-- 結合テスト: Docker上の GreenMail と Courier-IMAP（XServer と同じ種類。主な対象）の両方に対して、全ツールを実行する
+- 結合テスト: Docker上の GreenMail、Courier-IMAP（XServer と同じ種類。主な対象）、Dovecot（最も多い IMAP サーバー）のすべてに対して、全ツールを実行する
 - 日本語メールのフィクスチャ: ISO-2022-JP、Shift\_JIS、HTMLのみ、日本語フォルダ名、添付付き
 - プロトコル適合: MCP Inspectorでの接続確認を手順化し、curlベースのE2Eスクリプトも用意する
 
