@@ -10,7 +10,7 @@ use Cartwright\ImapMcp\Config\Config;
 use Cartwright\ImapMcp\Config\ConfigParser;
 
 /**
- * A valid config.php for tests, and access tokens for it. Example values only (CLAUDE.md security rules).
+ * A valid config.php for tests, and access tokens for it. Example values only (never real credentials or addresses).
  */
 final class TestConfig
 {

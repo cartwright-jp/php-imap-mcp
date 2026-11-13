@@ -16,3 +16,6 @@
 .idea/
 .DS_Store
 Thumbs.db
+
+# Instructions for Claude Code (kept locally, not published)
+/CLAUDE.md

@@ -144,7 +144,7 @@ final class OAuthImapFlowTest extends TestCase
             $this->config,
             new MemoryAuditLogger(),
             new Lockout($this->dir->path . '/lockout', $this->config->lockout),
-            // The test server's certificate is self-signed; production code always verifies (CLAUDE.md).
+            // The test server's certificate is self-signed; production code always verifies.
             static fn (Account $account): ImapMailbox => new ImapMailbox($account, 5, false),
             new IdStore($this->dir->path . '/oauth'),
         );

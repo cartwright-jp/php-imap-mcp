@@ -14,7 +14,7 @@ use Cartwright\ImapMcp\Mail\SearchCriteria;
 use Cartwright\ImapMcp\Mail\SearchResult;
 
 /**
- * In-memory Mailbox for tool tests (CLAUDE.md: Mail/ is swappable for a mock).
+ * In-memory Mailbox for tool tests (Mail/ is swappable for a mock, SPEC.md 4).
  */
 final class FakeMailbox implements Mailbox
 {

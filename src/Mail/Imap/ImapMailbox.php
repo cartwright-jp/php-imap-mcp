@@ -70,7 +70,7 @@ final class ImapMailbox implements Mailbox
     public function __construct(
         private readonly Account $account,
         private readonly int $timeoutSec = 10,
-        /** Only tests against a self-signed test server turn this off; never configurable (CLAUDE.md). */
+        /** Only tests against a self-signed test server turn this off; never configurable. */
         private readonly bool $verifyCertificate = true,
     ) {
     }

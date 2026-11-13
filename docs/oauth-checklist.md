@@ -81,7 +81,7 @@ SPEC.md 7章の方針（OAuth を自前で実装し、要件を一覧にして�
 | HTTP で届いたリクエストは拒否する（転送しない） | MCP Security、OAuth 2.1 1.5 | `Application::handle`、`Request::isHttps`（Web サーバーの変数だけを見る） | Flow `testPlainHttpIsRefusedOnEveryRoute`、`testPlainHttpWorksWhenTheResourceItselfIsHttpForLocalTesting`、Request `testHttpsIsReadFromTheWebServersVariables` |
 | ログイン画面以外は接続元 IP で制限する | SPEC 7章 | `Guard::checkSource`（authorize だけ通さない） | Flow `testOnlyTheLoginPageIsOpenToEveryIp` |
 | パスワードを設定ファイルに残さない | SPEC 7章 | `accounts` と `auth.tokens` があれば起動を拒否 | ConfigParserTest `removed: accounts`、`removed: static tokens` |
-| パスワード・トークン・鍵をログや画面に出さない | SPEC 7章、CLAUDE.md | 監査ログは grant と client だけ。`__debugInfo` で鍵を隠す | Flow `testLoginTokenExchangeAndMcpCall`、Sealer `testGeneratedKeyIsUsable`、Config `testDefaultsAndDerivedUrls` |
+| パスワード・トークン・鍵をログや画面に出さない | SPEC 7章 | 監査ログは grant と client だけ。`__debugInfo` で鍵を隠す | Flow `testLoginTokenExchangeAndMcpCall`、Sealer `testGeneratedKeyIsUsable`、Config `testDefaultsAndDerivedUrls` |
 
 ## 実装しないもの（理由）
 

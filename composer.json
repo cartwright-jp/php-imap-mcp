@@ -2,7 +2,7 @@
     "name": "cartwright-jp/php-imap-mcp",
     "description": "Remote MCP server in PHP for reading, searching and drafting IMAP mail on shared hosting such as XServer",
     "type": "project",
-    "license": "proprietary",
+    "license": "Apache-2.0",
     "keywords": ["mcp", "imap", "xserver", "shared-hosting", "claude"],
     "authors": [
         {
