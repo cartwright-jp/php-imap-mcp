@@ -396,7 +396,7 @@ return [
 - エラーはまとめて報告し、メッセージにはキー名だけを含めて値（パスワード等）は含めない
 - 起動を拒否したときの応答は `500`（`Server configuration error`）とし、詳細はサーバーのエラーログにだけ出す
 - 設定ファイルが公開ディレクトリ内にある、またはパーミッションが緩い場合は警告ログを出す
-- 確認用のCLI `php bin/check-config.php` で、IMAPへの接続テストとDraftsフォルダの検出も行えるようにする（`--no-imap` で接続テストを省く）
+- 確認用のCLI `php bin/check-config.php` で、設定を検証する。`--login <メールアドレス>` を付けると、パスワードを尋ねてIMAPにログインし、Draftsフォルダの検出も行う（パスワードは保存しない）
 
 ## 9. 非機能要件
 
@@ -500,6 +500,8 @@ M0〜M4は2026-11-12に完了した。M5も同日に実装した（自動テス�
 - リポジトリはOAuth（M5）を実装するまで非公開にする（GitHubの公開、Packagistへの登録はM7まで行わない）
 - 実機（XServer、claude.ai、スマホ）での検証はOAuthの実装後（M6）に行う。それまではGreenMailでの自動テストとローカルでの確認だけで進める
 
+M7は2026-11-19に完了した: 履歴の作者のメールアドレスを GitHub の noreply アドレスに書き換え、`CLAUDE.md` を履歴から除いた。GitHubのプルリクエストの参照（`refs/pull/*`）は force push で消せないため、元のリポジトリは `cartwright-jp/php-imap-mcp-archive`（非公開）に名前を変えて残し、同じ名前のリポジトリを作り直して公開した。v0.1.0 をリリースし、Packagist に登録した。脆弱性の報告は Private vulnerability reporting で受け付ける
+
 **未決事項**
 
 - [ ] claude.aiが対応しているMCP仕様の版（2026-07-28 / 2025-11-25）と、OAuthの事前登録・PKCE・metadataの扱いを実機で確認する。あわせて、リフレッシュトークンで自動的に更新されるか（されない場合はアクセストークンの期限ごとに再ログインになるため、期限の初期値を見直す）、Webで接続したコネクタがスマホのアプリでもそのまま使えるかを確認する（M6）。公式ドキュメント（[Authentication](https://claude.com/docs/connectors/building/authentication)、2026-11-12 確認）には、PKCE（S256）を必ず使う、`resource` は末尾のスラッシュなしで送る、期限の5分前か401でリフレッシュする、とある。末尾のスラッシュの有無は単体テストで確かめた。2026-11-12 に XServer で接続し、`2026-07-28` 版で話すこと、事前登録・PKCE・メタデータで接続できることを確かめた（リフレッシュとスマホは未確認）
@@ -518,4 +520,4 @@ M0〜M4は2026-11-12に完了した。M5も同日に実装した（自動テス�
 - [ ] Client ID Metadata Documents（MCP で SHOULD）に対応するか。claude.ai が事前登録だけで動けば当面は不要
 - [x] プロダクト名の確定: `php-imap-mcp` に決定（IMAP専用のため）。パッケージ名は `cartwright-jp/php-imap-mcp`（2026-11-11 時点で Packagist・GitHub ともに同名なし、`cartwright-jp` も未使用）
 - [x] GitHub Organization `cartwright-jp` を作成する（2026-11-11 作成済み）
-- [ ] Packagist のベンダー名 `cartwright-jp` を確保する。最初のパッケージ登録で確保されるため、公開時に早めに登録する
+- [x] Packagist のベンダー名 `cartwright-jp` を確保する: 2026-11-19 に `cartwright-jp/php-imap-mcp` を登録して確保した
