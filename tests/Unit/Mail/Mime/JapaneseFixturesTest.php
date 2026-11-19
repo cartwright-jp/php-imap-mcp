@@ -16,7 +16,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The Japanese fixtures (CLAUDE.md) decode without mojibake (SPEC.md 11). The IMAP path is covered by
+ * The Japanese fixtures decode without mojibake (SPEC.md 11). The IMAP path is covered by
  * tests/Integration/ImapMailboxTest.php.
  */
 #[CoversClass(HeaderBlock::class)]

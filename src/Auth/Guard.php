@@ -33,22 +33,16 @@ final class Guard
         if ($refused !== null) {
             return $refused;
         }
-        $ip = $request->remoteAddr;
-
         try {
-            $principal = $this->authenticator->authenticate($request->header('Authorization'));
+            return $this->authenticator->authenticate($request->header('Authorization'));
         } catch (AuthenticationFailed $e) {
+            // Logged, but not counted towards a lockout (M7 review, 2026-11-13): a sealed token cannot be
+            // guessed, and the source is Anthropic's addresses, shared by every claude.ai user. Counting would
+            // only let anyone lock the owner out, and claude.ai's own token-less discovery requests counted too.
             $this->audit->record('auth_failed', ['reason' => $e->reason]);
-            // An expired OAuth token is normal use (the client refreshes it), not an attack.
-            if ($e->reason !== AuthenticationFailed::EXPIRED && $this->lockout->recordFailure($ip)) {
-                $this->audit->record('lockout_started', ['ban_sec' => $this->config->lockout->banSec]);
-            }
 
             return self::refuse(401, 'Unauthorized', ['WWW-Authenticate' => $this->authenticator->challenge($e)]);
         }
-        $this->lockout->reset($ip);
-
-        return $principal;
     }
 
     /**

@@ -160,7 +160,7 @@ final class ApplicationTest extends TestCase
         $files = $this->dir->glob('var/logs/audit-*.jsonl');
         self::assertCount(1, $files);
         self::assertStringContainsString('"event":"auth_failed"', (string) file_get_contents($files[0]));
-        self::assertCount(1, $this->dir->glob('var/lockout/*.json'));
+        self::assertSame([], $this->dir->glob('var/lockout/*.json'), 'a bad token does not count towards a lockout');
     }
 
     private function app(?Config $config = null): Application

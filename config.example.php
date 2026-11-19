@@ -46,7 +46,8 @@ return [
         // need your IP here instead.
         'allowed_ips' => ['160.79.104.0/21', '153.61.208.0/20'],
         'allowed_origins' => [],
-        // Used for MCP requests, the token endpoint, and login attempts (per IP and per mail address).
+        // Counts failed logins (per IP and per mail address) and failed client authentication at the token
+        // endpoint. Bad tokens at the MCP endpoint are only logged, not counted.
         'lockout' => ['max_failures' => 10, 'window_sec' => 600, 'ban_sec' => 900],
     ],
     'tools' => [

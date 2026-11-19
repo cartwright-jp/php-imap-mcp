@@ -52,6 +52,8 @@ final class OAuthFlowTest extends TestCase
 {
     private const SERVER_IP = '203.0.113.10';
     private const BROWSER_IP = '198.51.100.20';
+    /** The origin of TestConfig::RESOURCE, which the login form's POST carries. */
+    private const OWN_ORIGIN = 'https://example.com';
 
     private TempDirectory $dir;
     private MemoryAuditLogger $audit;
@@ -240,6 +242,20 @@ final class OAuthFlowTest extends TestCase
         self::assertSame('invalid_grant', $this->exchange($code, $pkce['verifier'])['body']['error']);
     }
 
+    public function testAReusedCodeRevokesTheTokensIssuedFromIt(): void
+    {
+        // OAuth 2.1 4.1.3: the code leaked; the tokens issued for it are no longer trusted.
+        $pkce = TestConfig::pkce();
+        $code = $this->loginForCode($pkce);
+        $first = $this->exchange($code, $pkce['verifier']);
+
+        self::assertSame('invalid_grant', $this->exchange($code, $pkce['verifier'])['body']['error']);
+
+        self::assertSame(401, $this->app()->handle($this->mcp($first['body']['access_token']))->status);
+        self::assertSame('invalid_grant', $this->refresh($first['body']['refresh_token'])['body']['error']);
+        self::assertCount(1, $this->audit->events('oauth_code_reuse'));
+    }
+
     public function testWrongVerifierIsRejectedWithoutBurningTheCode(): void
     {
         $pkce = TestConfig::pkce();
@@ -398,7 +414,31 @@ final class OAuthFlowTest extends TestCase
 
         self::assertSame(403, $this->submitLogin($page, cookie: false)->status);
         self::assertSame(403, $this->submitLogin($page, origin: 'https://evil.example')->status);
-        self::assertSame(302, $this->submitLogin($page, origin: 'https://example.com')->status);
+        // With Referrer-Policy: same-origin, browsers send the real origin on this form's POST. "null" (an
+        // attacker's page with no-referrer, a sandboxed frame) and no Origin at all are refused (M7 review).
+        self::assertSame(403, $this->submitLogin($page, origin: 'null')->status);
+        self::assertSame(403, $this->submitLogin($page, origin: null)->status);
+        self::assertSame(302, $this->submitLogin($page, origin: self::OWN_ORIGIN)->status);
+    }
+
+    public function testTheLoginFormSendsItsOriginButNoReferrerToOtherSites(): void
+    {
+        $page = $this->app()->handle($this->get('/mcp/authorize', $this->authorizeQuery(TestConfig::pkce())));
+
+        self::assertSame('same-origin', $page->headers['Referrer-Policy']);
+    }
+
+    public function testControlCharactersInThePasswordAreRefusedBeforeTheImapServerIsAsked(): void
+    {
+        $page = $this->app()->handle($this->get('/mcp/authorize', $this->authorizeQuery(TestConfig::pkce())));
+        $this->accounts = [];
+
+        foreach (["secret\rA1 LOGOUT", "secret\x00", "secret\x7f"] as $password) {
+            $response = $this->submitLogin($page, $password);
+            self::assertSame(400, $response->status);
+            self::assertStringContainsString('このメールアドレスではログインできません', $response->body);
+        }
+        self::assertSame([], $this->accounts, 'the IMAP server is not even asked');
     }
 
     public function testTamperedLoginRequestIsRefused(): void
@@ -621,7 +661,7 @@ final class OAuthFlowTest extends TestCase
         ?Config $config = null,
         string $email = TestConfig::EMAIL,
         bool $cookie = true,
-        ?string $origin = null,
+        ?string $origin = self::OWN_ORIGIN,
     ): Response {
         preg_match('/name="request" value="([^"]+)"/', $page->body, $m);
         preg_match('/pim_login=([^;]*)/', $page->headers['Set-Cookie'] ?? '', $c);

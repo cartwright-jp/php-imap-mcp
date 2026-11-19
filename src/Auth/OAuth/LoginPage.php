@@ -68,7 +68,9 @@ final class LoginPage
             'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; form-action "
                 . $formAction . "; frame-ancestors 'none'; base-uri 'none'",
             'X-Frame-Options' => 'DENY',
-            'Referrer-Policy' => 'no-referrer',
+            // same-origin, not no-referrer: with no-referrer the browser sends "Origin: null" on the form's
+            // POST, and the CSRF check needs the real origin. Other sites still get no Referer.
+            'Referrer-Policy' => 'same-origin',
         ];
     }
 
