@@ -54,7 +54,7 @@ PHP 8.1以上の共用サーバーで、PHP拡張のimapに依存せず動くこ
 | 項目 | 前提 |
 | --- | --- |
 | サーバー | XServer レンタルサーバー（共用）。Apache＋PHP、`.htaccess` 利用可 |
-| PHP | 8.1以上（開発は8.3で、CIは8.1〜8.4）。ext-imapは使わない（8.4で本体から削除済み）。必要な拡張は openssl、mbstring、iconv、json |
+| PHP | 8.1以上（開発は8.3で、CIは8.1〜8.4）。ext-imapは使わない（8.4で本体から削除済み）。必要な拡張は openssl、mbstring、iconv、json、sodium（OAuthのトークンの封） |
 | IMAP | `svXXXXX.xserver.jp:993`（SSL/TLS） |
 | SMTP | 使わない（送信は手元のメーラーで行う） |
 | 認証情報 | メールアドレス全体＋メールアカウントのパスワード |
@@ -329,7 +329,6 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
 
 - 設定ファイル、ログ、レート制限の記録は、公開ディレクトリ（`public_html`）の外に置く。公開側に置くのは `index.php` と `.htaccess` だけとする
 - 設定ファイルのパーミッションは600。起動時に確認し、緩い場合は警告する
-- MVPでは、メールのパスワードは設定ファイルに書く（v0.3で解消）（共用サーバーには安全な保管場所がないため。暗号化しても鍵が同じサーバーにあるため、効果が限定的であることを明記する）
 - IMAPはTLSのみで接続し、証明書を検証する。平文での接続はサポートしない
 
 **監査ログ**
@@ -439,9 +438,11 @@ return [
 
 **OSS運営**
 
-- ライセンス: MITを第一候補とする（未決。「12. 未決事項」を参照）
+- ライセンス: Apache-2.0（2026-11-13決定。「12. 未決事項」を参照）
 - 著作権者の表記: Cartwright は個人事業の屋号のため、個人名を併記する（例: `Copyright (c) 2026 Kazuki Aruga (Cartwright)`）
-- 用意する文書: README（日本語・英語）、SECURITY.md（脆弱性の報告窓口、対応方針）、CHANGELOG、CONTRIBUTING
+- 用意する文書: README、SECURITY.md（脆弱性の報告窓口、対応方針）、CHANGELOG、CONTRIBUTING
+- 公開する文書の言語（2026-11-19決定）: 英語を正とし、日本語を従とする。README、SECURITY、CONTRIBUTING は英語の `*.md` と日本語の `*.ja.md` に分け、それぞれの先頭で相互にリンクする（日本語で読みたい人が、英語の中から日本語の段落を探さずに済むようにするため）。両方の内容は揃え、食い違ったら英語に合わせる。CHANGELOG は英語だけ。開発用の文書（`docs/SPEC.md`、`docs/deploy-xserver.md`、`docs/oauth-checklist.md`）は日本語のままとし、英語の README には配置の要点を英語で書いて、詳しい手順は日本語の手順書へリンクする
+- 脆弱性の報告窓口: GitHub の Private vulnerability reporting だけにする（2026-11-19決定）。メールアドレスを公開せずに済み、アドバイザリの公開と CVE の申請までGitHubの中でできる。公開したら Packagist 経由で `composer audit` や Dependabot から利用者に知らせが届く。メールの窓口は、GitHubを使えない人から求められたときに検討する
 - READMEに必ず書くこと: メールへの全権限を持つソフトであること、プロンプトインジェクションのリスク、推奨する構成（専用アカウントと下書き運用）
 - バージョン管理: SemVer。設定ファイルの互換性を壊す変更はメジャーバージョンを上げる
 - CI: GitHub ActionsでPHP 8.1〜8.4のテスト、PHPStan、コードスタイルの検査、Dependabotを回す
@@ -490,7 +491,7 @@ return [
 5. **M4 下書き**: `save_draft`（返信のスレッド情報を含む）
 6. **M5 IMAP認証によるOAuth**（v0.3から前倒し）: ログイン画面、封をしたトークン、Protected Resource Metadata、設定ファイルからのパスワードの除去（「7. 認証・セキュリティ要件」）
 7. **M6 実環境での検証**: 自分のXServerに配置し、claude.aiとスマホから受け入れ基準を確認する。ここでv0.1とする
-8. **M7 公開準備**: README（日本語・英語）、SECURITY.md、ライセンスを整え、GitHubで公開する。公開の前に、コミットの作者のメールアドレスを GitHub の noreply アドレスに書き換え、`CLAUDE.md` を履歴から除く（2026-11-13決定）
+8. **M7 公開準備**: README、SECURITY.md、CHANGELOG、CONTRIBUTING、ライセンスを整え、GitHubで公開する。公開の前に、コミットの作者のメールアドレスを GitHub の noreply アドレスに書き換え、`CLAUDE.md` を履歴から除く（2026-11-13決定）。公開したら、リポジトリの設定で Private vulnerability reporting を有効にする（SECURITY.md の報告先）
 9. **M8 v0.2**: フラグ操作、移動、添付ファイルのメタ情報
 10. **M9 v0.3**: vendor同梱zip配布、ブラウザの初期設定画面
 

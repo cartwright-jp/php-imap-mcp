@@ -19,7 +19,7 @@ claude.ai の公式ドキュメント（2026-11-12 に確認）による前提:
 
 ## 1. XServer の準備
 
-SSH のクライアントは、手元の WSL（Ubuntu）の OpenSSH（`ssh`、`scp`）を使う。手順 2 の `git archive` も WSL で行う。
+SSH のクライアントは、手元の WSL（Ubuntu）の OpenSSH（`ssh`）を使う。
 
 1. 手元の WSL で鍵を作る（サーバーパネルで鍵を作ってダウンロードする方法もあるが、秘密鍵がブラウザを通らないよう手元で作る）
 
@@ -74,17 +74,10 @@ SSH のクライアントは、手元の WSL（Ubuntu）の OpenSSH（`ssh`、`s
 
 ## 2. ファイルを置く
 
-リポジトリは非公開なので、手元（WSL）で固めて送る。
+XServer で、GitHub から取得する。
 
 ```sh
-# 手元の WSL で、リポジトリの直下から
-git archive --format=tar.gz -o /tmp/php-imap-mcp.tar.gz main
-scp /tmp/php-imap-mcp.tar.gz xserver:~/
-```
-
-```sh
-# XServer で
-mkdir -p ~/php-imap-mcp && tar xzf ~/php-imap-mcp.tar.gz -C ~/php-imap-mcp && rm ~/php-imap-mcp.tar.gz
+git clone https://github.com/cartwright-jp/php-imap-mcp.git ~/php-imap-mcp
 cd ~/php-imap-mcp
 composer install --no-dev --optimize-autoloader
 ```
@@ -93,7 +86,7 @@ composer install --no-dev --optimize-autoloader
 
 本体は `~/php-imap-mcp/`（公開ディレクトリの外）に置く。公開ディレクトリに置くのは、手順 4 の2ファイルだけ。
 
-更新するときは、同じように送って展開し（`config.php` と `var/` は上書きされない）、`composer install --no-dev --optimize-autoloader` をやり直す。`public/` の2ファイルが変わったときは、手順 4 もやり直す（`index.php` の `APP_ROOT` を書き直すのを忘れない）。
+更新するときは、`cd ~/php-imap-mcp && git pull` で新しい版を取得し（`config.php` と `var/` は Git の管理外なので上書きされない）、`composer install --no-dev --optimize-autoloader` をやり直す。`public/` の2ファイルが変わったときは、手順 4 もやり直す（`index.php` の `APP_ROOT` を書き直すのを忘れない）。
 
 ## 3. 設定を書く
 
@@ -153,7 +146,7 @@ const APP_ROOT = '/home/ACCOUNT/php-imap-mcp';
 
 `auth.allowed_ips` に、curl を送る場所の IP を一時的に足す。サーバーに SSH でつないで、サーバー自身から送ると簡単（足す IP は `getent hosts example.com` で分かるサーバーの IP）。期待する結果と違えば、そこで止めて原因を調べる。
 
-トークンなしの `401` は認証の失敗として数えられ、10分に10回で、その IP が15分止められる（`403` と「Too many authentication failures」）。確認を繰り返して止められたら、15分待つか、`~/php-imap-mcp/var/lockout/` のその IP のファイル（IP の SHA-256 が名前）を消す:
+トークンなしの `401` は監査ログに記録されるだけで、ロックアウトの回数には数えない（SPEC.md 7章）。数えるのは、ログイン画面の失敗と、トークンのエンドポイントでのクライアント認証の失敗で、10分に10回で、その IP が15分止められる（`403` と「Too many authentication failures」）。確認を繰り返して止められたら、15分待つか、`~/php-imap-mcp/var/lockout/` のその IP のファイル（IP の SHA-256 が名前）を消す:
 
 ```sh
 rm ~/php-imap-mcp/var/lockout/$(printf %s 203.0.113.10 | sha256sum | cut -d' ' -f1).json
