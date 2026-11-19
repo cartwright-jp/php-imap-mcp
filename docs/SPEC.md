@@ -500,7 +500,7 @@ M0〜M4は2026-11-12に完了した。M5も同日に実装した（自動テス�
 - リポジトリはOAuth（M5）を実装するまで非公開にする（GitHubの公開、Packagistへの登録はM7まで行わない）
 - 実機（XServer、claude.ai、スマホ）での検証はOAuthの実装後（M6）に行う。それまではGreenMailでの自動テストとローカルでの確認だけで進める
 
-M6は2026-11-13に完了し、v0.1とした。M7は2026-11-19に完了した: 履歴の作者のメールアドレスを GitHub の noreply アドレスに書き換え、`CLAUDE.md` を履歴から除いた。GitHubのプルリクエストの参照（`refs/pull/*`）は force push で消せないため、元のリポジトリは `cartwright-jp/php-imap-mcp-archive`（非公開）に名前を変えて残し、同じ名前のリポジトリを作り直して公開した。v0.1.0 をリリースし、Packagist に登録した。脆弱性の報告は Private vulnerability reporting で受け付ける
+M7は2026-11-19に完了した: 履歴の作者のメールアドレスを GitHub の noreply アドレスに書き換え、`CLAUDE.md` を履歴から除いた。GitHubのプルリクエストの参照（`refs/pull/*`）は force push で消せないため、元のリポジトリは `cartwright-jp/php-imap-mcp-archive`（非公開）に名前を変えて残し、同じ名前のリポジトリを作り直して公開した。v0.1.0 をリリースし、Packagist に登録した。脆弱性の報告は Private vulnerability reporting で受け付ける
 
 **未決事項**
 
