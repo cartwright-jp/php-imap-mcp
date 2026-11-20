@@ -19,7 +19,7 @@ A remote [MCP](https://modelcontextprotocol.io/) server in plain PHP that lets C
 | `list_folders` | Folders with their special use (inbox, sent, drafts…), total and unread counts |
 | `search_emails` | Searches one folder by sender, recipient, subject, text, date or unread state; newest first, with a short preview |
 | `get_email` | One message: headers, the body as text (HTML converted), attachment names and sizes (not their contents). Does not mark it as read unless asked |
-| `save_draft` | Saves a plain-text draft to the Drafts folder. For a reply, sets `In-Reply-To` and `References` so it stays in the thread |
+| `save_draft` | Saves a plain-text draft to the Drafts folder. For a reply, sets `In-Reply-To` and `References` so it stays in the thread, and with `quote: "full"` quotes the original below the body |
 
 Each tool can be turned off in the configuration, and `policy.allowed_folders` limits which folders can be read.
 
@@ -103,12 +103,12 @@ Read this before connecting a real mailbox. To report a vulnerability, see [SECU
 - Mail passwords are not stored on the server. They are sealed in tokens with the server's key (libsodium). An attacker needs both the key and a token to recover a password.
 - The login page accepts only the mail domains you list, and repeated failed logins lock out the IP address and the mail address for a while.
 - The MCP endpoint is limited to the allowed IP ranges and checks the `Origin` header. IMAP is always TLS with certificate verification.
-- The audit log records each tool call (time, account, tool, a summary of the arguments, result, duration). It never records passwords, tokens or message bodies. For drafts it records recipients, subject and body length.
+- The audit log records each tool call (time, account, tool, a summary of the arguments, result, duration). It never records passwords, tokens or message bodies. For drafts it records recipients, subject and body length (and, when quoting, the method and the quote length).
 - Sign-ins can be revoked one by one with `php bin/revoke-grant.php <grant>`, or all at once by replacing the key.
 
 ## Status
 
-Version 0.1, used daily by the author on a shared hosting service. Planned next (0.2): changing read and flagged state, moving messages (both off by default), attachment details. Later: a downloadable zip with dependencies included, and a browser-based setup screen. See [CHANGELOG.md](CHANGELOG.md).
+Version 0.2, used daily by the author on a shared hosting service. 0.2 adds quoting the original email in reply drafts. Planned next (0.3): changing read and flagged state, moving messages (both off by default), a downloadable zip with dependencies included, and a browser-based setup screen. See [CHANGELOG.md](CHANGELOG.md).
 
 Known limitations:
 

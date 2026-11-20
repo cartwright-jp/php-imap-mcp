@@ -34,8 +34,8 @@ MVPは「読み取り＋下書き保存＋メールアカウントでのログ�
 | 区分 | 内容 |
 | --- | --- |
 | MVP（v0.1） | フォルダ一覧、メール検索・一覧、メール本文取得、下書き保存、IMAP認証によるOAuth（M5で前倒し。設定ファイルにメールのパスワードを置かない）、操作ログ。ログインしたメールアカウントごとに動くので、複数の利用者に対応する |
-| v0.2 | 既読・フラグ操作、フォルダ移動（いずれも初期無効）、添付ファイルのメタ情報取得、下書きでの返信元の引用（`save_draft` の `quote`） |
-| v0.3 | ブラウザの初期設定画面、vendor同梱zip配布（IMAP認証によるOAuthはMVPに前倒しした） |
+| v0.2 | 下書きでの返信元の引用（`save_draft` の `quote`）。2026-11-20、ほかの機能を v0.3 に回し、これだけで v0.2.0 として公開する。添付ファイルのメタ情報（名前・型・大きさ）は v0.1 の `get_email` で対応済みのため外した |
+| v0.3 | 既読・フラグ操作、フォルダ移動（いずれも初期無効。v0.2 から移した）、ブラウザの初期設定画面、vendor同梱zip配布（IMAP認証によるOAuthはMVPに前倒しした） |
 | 将来 | 認証情報をリクエストヘッダーで受け取る方式（自前のログイン画面を置けない環境向けの代替）、外部IdPとの連携、添付ファイル本体の取得、他の共用サーバーでの動作検証 |
 
 **非対象（やらないこと）**
@@ -215,8 +215,8 @@ MVPのツールは読み取り3つと下書き保存1つ。フラグ操作や移
 | `search_emails` | 0.1 | 有効 | readOnly | folder（初期 INBOX）、from、to、subject、text、since、before、unread\_only、limit（初期20、上限50）、cursor | 新しい順の一覧（uid、日時、差出人、宛先、件名、既読、添付有無、本文冒頭200字）と next\_cursor。あわせて uidvalidity と一致件数 |
 | `get_email` | 0.1 | 有効 | readOnly | folder、uid、uidvalidity（任意）、max\_chars（初期20000）、mark\_as\_read（初期 false） | ヘッダー、テキスト本文（HTMLのみの場合はテキスト化）、添付の名前・型・サイズ、Message-ID、In-Reply-To、References |
 | `save_draft` | 0.1 | 有効 | 書き込み（非破壊） | to、cc、subject、body（text）、in\_reply\_to\_uid（任意）、in\_reply\_to\_folder（初期 INBOX）、in\_reply\_to\_uidvalidity（任意）、quote（初期 none、0.2）、max\_quote\_chars（初期20000、0.2） | IMAP APPENDでDraftsフォルダに保存したuid。返信時はIn-Reply-ToとReferencesを自動で設定し、手元のメーラーで開いてそのまま送れる形にする。quote が full なら、返信元の本文をサーバーが引用する（0.2） |
-| `set_flags` | 0.2 | 無効 | 書き込み | folder、uids、seen、flagged | 更新件数 |
-| `move_email` | 0.2 | 無効 | 書き込み | folder、uids、to\_folder | 移動件数（Trashへの移動は設定で禁止できる） |
+| `set_flags` | 0.3 | 無効 | 書き込み | folder、uids、seen、flagged | 更新件数 |
+| `move_email` | 0.3 | 無効 | 書き込み | folder、uids、to\_folder | 移動件数（Trashへの移動は設定で禁止できる） |
 
 **共通ルール**
 
@@ -530,8 +530,8 @@ return [
 6. **M5 IMAP認証によるOAuth**（v0.3から前倒し）: ログイン画面、封をしたトークン、Protected Resource Metadata、設定ファイルからのパスワードの除去（「7. 認証・セキュリティ要件」）
 7. **M6 実環境での検証**: 自分のXServerに配置し、claude.aiとスマホから受け入れ基準を確認する。ここでv0.1とする
 8. **M7 公開準備**: README、SECURITY.md、CHANGELOG、CONTRIBUTING、ライセンスを整え、GitHubで公開する。公開の前に、コミットの作者のメールアドレスを GitHub の noreply アドレスに書き換え、`CLAUDE.md` を履歴から除く（2026-11-13決定）。公開したら、リポジトリの設定で Private vulnerability reporting を有効にする（SECURITY.md の報告先）
-9. **M8 v0.2**: フラグ操作、移動、添付ファイルのメタ情報、`save_draft` の引用（「6. ツール仕様」）
-10. **M9 v0.3**: vendor同梱zip配布、ブラウザの初期設定画面
+9. **M8 v0.2**: `save_draft` の引用（「6. ツール仕様」）
+10. **M9 v0.3**: フラグ操作、移動（v0.2 から移した）、vendor同梱zip配布、ブラウザの初期設定画面
 
 M0〜M4は2026-11-12に完了した。M5も同日に実装した（自動テストとローカルでの確認まで。実機での確認はM6）。M4の完了時に、次の2点を決めた。
 
@@ -539,6 +539,8 @@ M0〜M4は2026-11-12に完了した。M5も同日に実装した（自動テス�
 - 実機（XServer、claude.ai、スマホ）での検証はOAuthの実装後（M6）に行う。それまではGreenMailでの自動テストとローカルでの確認だけで進める
 
 M7は2026-11-19に完了した: 履歴の作者のメールアドレスを GitHub の noreply アドレスに書き換え、`CLAUDE.md` を履歴から除いた。GitHubのプルリクエストの参照（`refs/pull/*`）は force push で消せないため、元のリポジトリは `cartwright-jp/php-imap-mcp-archive`（非公開）に名前を変えて残し、同じ名前のリポジトリを作り直して公開した。v0.1.0 をリリースし、Packagist に登録した。脆弱性の報告は Private vulnerability reporting で受け付ける
+
+M8は2026-11-20に完了した: `save_draft` の引用を実装し、XServer の本番に配置して、メールソフトで引用が正しく表示されることを確かめた。フラグ操作と移動は v0.3 に回し、引用だけで v0.2.0 として公開する
 
 **未決事項**
 
@@ -550,7 +552,7 @@ M7は2026-11-19に完了した: 履歴の作者のメールアドレスを GitHu
 - [x] OAuth（M5）を自前で実装するか、`league/oauth2-server` などを使うか: 自前で実装する（2026-11-12決定。「7. 認証・セキュリティ要件」）
 - [x] OAuthを前倒ししたことに合わせて、「2. スコープ」の版の区切りを見直す: v0.1にOAuthを含め、Bearerトークン方式は廃止する（2026-11-12決定）
 - [ ] 公式PHP SDK（`mcp/sdk`）に移行する時期の判断基準
-- [ ] `webklex/php-imap` が引き込む illuminate 5.4 系（2017年版で更新が止まっている）の扱い。実際に使うのは接続とコマンド送受信の層だけなので、webklex の依存が新しくなるか、自前の最小実装に置き換えるかを v0.2 までに判断する
+- [ ] `webklex/php-imap` が引き込む illuminate 5.4 系（2017年版で更新が止まっている）の扱い。実際に使うのは接続とコマンド送受信の層だけなので、webklex の依存が新しくなるか、自前の最小実装に置き換えるかを v0.3 までに判断する（v0.2 の範囲を絞ったため延ばした、2026-11-20）
 - [ ] XServer のIMAPサーバーが SPECIAL-USE（`\Drafts` などのフラグ）に対応しているか、フォルダ名がどうなっているか（`INBOX.Drafts` など）を実機で確認する
 - [ ] OAuth を実機で確認する（M6、[deploy-xserver.md](deploy-xserver.md) 8章）: claude.ai のカスタムコネクタがクライアントIDとシークレットの事前登録で接続できるか、コールバックURL（公式ドキュメントでは `https://claude.ai/api/mcp/auth_callback`）、認可サーバーのメタデータをどの場所で見つけるか（パスつきの発行者のときにどこを探すかが公式ドキュメントにないので、サイト直下の `.htaccess` で転送する手順を標準にした。要らないと分かれば任意にする）、`.htaccess` の `RewriteRule` とログイン画面だけを IP 制限から外す `<If>` が XServer で動くか、sodium 拡張が使えるか。2026-11-12 に確認済み: 事前登録で接続できる、コールバックURLは公式ドキュメントのとおり、`RewriteRule` と sodium は動く。claude.ai はURLを末尾のスラッシュなしで使うため、Apache の 301（`/mcp` → `/mcp/`）で失敗し、`DirectorySlash Off` と `RewriteOptions AllowNoSlash` で直した。残りは、どの場所のメタデータが使われるかと、`<If>`
 - [ ] 下書きの From に表示名（例: 山田 太郎）を付ける方法。固定トークン方式の廃止で設定の `from_name` がなくなったため、今は表示名なしのアドレスだけになる。ログイン画面で入力してもらう、メールサーバーの送信済みメールから推定する、ドメインごとに設定する、などの案がある。多くのメールソフト（Thunderbird、Outlook、Roundcube など）は下書きを送るときに自分の差出人設定で From を付け直すので、必須ではない。M6 で実際のソフトから送って確かめてから決める。M6 の結果（2026-11-13）: Windows の Outlook（クラシック）で下書きを開いて送ると、下書きの From がそのまま使われ、受け取った側にはメールアドレスだけが表示された。少なくとも Outlook では From を付け直さないので、表示名が要る
