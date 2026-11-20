@@ -414,6 +414,41 @@ final class ServerTest extends TestCase
         );
     }
 
+    public function testAuditFieldsKnownOnlyAfterTheCallAreAddedToTheArguments(): void
+    {
+        $audit = new MemoryAuditLogger();
+        $tool = new class implements Tool {
+            public function name(): string
+            {
+                return 'counting';
+            }
+
+            public function definition(): array
+            {
+                return [];
+            }
+
+            public function call(array $arguments): ToolResult
+            {
+                return ToolResult::success('done')->withAudit(['quote_chars' => 12, 'mode' => 'after']);
+            }
+
+            public function auditArguments(array $arguments): array
+            {
+                return ['mode' => 'before', 'size' => 3];
+            }
+        };
+
+        $response = (new Server(new ToolRegistry([$tool]), $audit))
+            ->handle($this->modern('tools/call', ['name' => 'counting', 'arguments' => []]));
+
+        self::assertSame(
+            ['mode' => 'after', 'size' => 3, 'quote_chars' => 12],
+            $audit->events('tools/call')[0]['arguments'],
+        );
+        self::assertStringNotContainsString('quote_chars', $response->body, 'audit fields stay out of the response');
+    }
+
     public function testContentTypeMustBeJson(): void
     {
         $response = $this->send($this->modern('tools/list', [], ['Content-Type' => 'text/plain']));
