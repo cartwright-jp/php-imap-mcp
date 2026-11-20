@@ -10,7 +10,7 @@ namespace Cartwright\ImapMcp;
 final class ServerInfo
 {
     public const NAME = 'php-imap-mcp';
-    public const VERSION = '0.1.0';
+    public const VERSION = '0.2.0';
 
     /**
      * @return array{name: string, version: string}

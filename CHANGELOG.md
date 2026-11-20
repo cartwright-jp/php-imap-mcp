@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-20
+
 ### Added
 
 - `save_draft` can quote the original email below a reply: `quote: "full"` (the default `none` keeps the 0.1 behaviour). The server copies the original text with `> ` on each line under a Gmail-style Japanese header line (`2026年11月19日(木) 10:51 Name <address>:`), so the AI never rewrites it. `max_quote_chars` limits the quote (default 20000, at most `policy.body_max_chars`); a cut quote ends with `（以下省略）`. The response gains `quoted`, `quote` and `quote_truncated`; the audit log records only the method and the number of quoted characters.
@@ -25,5 +27,6 @@ First public release.
 - `bin/check-config.php`, `bin/generate-key.php`, `bin/generate-client-secret.php`, `bin/revoke-grant.php`.
 - Tested with Courier-IMAP and Dovecot, on PHP 8.1 to 8.4.
 
-[Unreleased]: https://github.com/cartwright-jp/php-imap-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cartwright-jp/php-imap-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cartwright-jp/php-imap-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cartwright-jp/php-imap-mcp/releases/tag/v0.1.0
