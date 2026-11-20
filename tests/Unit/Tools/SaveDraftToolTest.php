@@ -130,6 +130,128 @@ final class SaveDraftToolTest extends TestCase
         self::assertSame([], $out['references']);
     }
 
+    public function testWithoutQuoteTheDraftHasOnlyTheCallersBody(): void
+    {
+        $this->mailbox->details['INBOX'][7] = MailFixtures::detail(7, '元の本文');
+
+        $out = $this->structured($this->tool()->call(['in_reply_to_uid' => 7, 'quote' => 'none', 'body' => '了解']));
+
+        self::assertFalse($out['quoted']);
+        self::assertSame('none', $out['quote']);
+        self::assertFalse($out['quote_truncated']);
+        self::assertSame('了解', $this->appendedBody());
+        self::assertSame(1, $this->mailbox->messageCalls[0]['maxChars']);
+    }
+
+    public function testFullQuoteAppendsTheOriginalBodyVerbatim(): void
+    {
+        $original = "佐藤です。（ご確認ください）😀\n\n> 山田様\n> 先日の件";
+        $this->mailbox->details['INBOX'][7] = MailFixtures::detail(7, $original);
+
+        $result = $this->tool()->call(['in_reply_to_uid' => 7, 'quote' => 'full', 'body' => '承知しました。']);
+        $out = $this->structured($result);
+
+        self::assertTrue($out['quoted']);
+        self::assertSame('full', $out['quote']);
+        self::assertFalse($out['quote_truncated']);
+        self::assertSame(20000, $this->mailbox->messageCalls[0]['maxChars']);
+        self::assertFalse($this->mailbox->messageCalls[0]['markSeen']);
+        self::assertSame(
+            "承知しました。\r\n\r\n"
+            . "2026年11月9日(月) 10:15 佐藤 花子 <hanako@example.com>:\r\n\r\n"
+            . "> 佐藤です。（ご確認ください）😀\r\n"
+            . ">\r\n"
+            . "> > 山田様\r\n"
+            . "> > 先日の件\r\n",
+            $this->appendedBody(),
+        );
+        self::assertSame(['quote' => 'full', 'quote_chars' => mb_strlen($original, 'UTF-8')], $result->audit);
+        self::assertStringNotContainsString('佐藤です', $result->text, 'the quote is not echoed back to the AI');
+    }
+
+    public function testMaxQuoteCharsIsPassedToTheMailboxAndTruncationIsReported(): void
+    {
+        $original = MailFixtures::detail(7, 'あいう');
+        $this->mailbox->details['INBOX'][7] = new MessageDetail(
+            7,
+            100,
+            $original->date,
+            $original->from,
+            $original->to,
+            [],
+            [],
+            $original->subject,
+            null,
+            null,
+            [],
+            true,
+            false,
+            'あいう',
+            MessageDetail::FORMAT_HTML,
+            true,
+            [],
+        );
+
+        $result = $this->tool()->call([
+            'in_reply_to_uid' => 7,
+            'quote' => 'full',
+            'max_quote_chars' => 3,
+            'body' => 'x',
+        ]);
+        $out = $this->structured($result);
+
+        self::assertSame(3, $this->mailbox->messageCalls[0]['maxChars']);
+        self::assertTrue($out['quote_truncated']);
+        self::assertStringEndsWith("> あいう\r\n（以下省略）\r\n", $this->appendedBody());
+        self::assertSame(['quote' => 'full', 'quote_chars' => 3], $result->audit);
+    }
+
+    public function testDefaultMaxQuoteCharsFollowsALowerPolicyLimit(): void
+    {
+        $this->mailbox->details['INBOX'][7] = MailFixtures::detail(7);
+
+        $this->tool(null, new MailPolicy(bodyMaxChars: 500))
+            ->call(['in_reply_to_uid' => 7, 'quote' => 'full', 'body' => 'x']);
+
+        self::assertSame(500, $this->mailbox->messageCalls[0]['maxChars']);
+    }
+
+    public function testEmptyOriginalIsNotQuoted(): void
+    {
+        $this->mailbox->details['INBOX'][7] = MailFixtures::detail(7, "\n\n");
+
+        $result = $this->tool()->call(['in_reply_to_uid' => 7, 'quote' => 'full', 'body' => '了解']);
+        $out = $this->structured($result);
+
+        self::assertFalse($out['quoted']);
+        self::assertSame('full', $out['quote']);
+        self::assertSame('了解', $this->appendedBody());
+        self::assertSame(['quote' => 'full', 'quote_chars' => 0], $result->audit);
+    }
+
+    public function testQuoteWithAMaxAboveThePolicyIsRefused(): void
+    {
+        $this->expectException(InvalidToolArguments::class);
+        $this->expectExceptionMessage("'max_quote_chars'");
+
+        $this->tool(null, new MailPolicy(bodyMaxChars: 500))
+            ->call(['in_reply_to_uid' => 7, 'quote' => 'full', 'max_quote_chars' => 501, 'body' => 'x']);
+    }
+
+    public function testDefinitionDescribesTheQuote(): void
+    {
+        $definition = $this->tool(null, new MailPolicy(bodyMaxChars: 500))->definition();
+        $properties = $definition['inputSchema']['properties'];
+
+        self::assertSame(['none', 'full'], $properties['quote']['enum']);
+        self::assertSame('none', $properties['quote']['default']);
+        self::assertSame(500, $properties['max_quote_chars']['maximum']);
+        self::assertSame(500, $properties['max_quote_chars']['default']);
+        self::assertStringContainsString('do not write the quote yourself', $definition['description']);
+        self::assertStringContainsString('whoever the recipients are', $definition['description']);
+        self::assertContains('quote_truncated', $definition['outputSchema']['required']);
+    }
+
     public function testExplicitRecipientsAndSubjectOverrideTheReplyDefaults(): void
     {
         $this->mailbox->details['INBOX'][7] = MailFixtures::detail(7);
@@ -219,6 +341,18 @@ final class SaveDraftToolTest extends TestCase
             "'body' must be at most",
         ];
         yield 'control character in body' => [['to' => ['a@example.com'], 'body' => "x\x1b[31m"], 'control characters'];
+        yield 'quote without a reply' => [
+            ['to' => ['a@example.com'], 'quote' => 'full', 'body' => 'x'],
+            "'quote' needs 'in_reply_to_uid'",
+        ];
+        yield 'unknown quote method' => [
+            ['in_reply_to_uid' => 7, 'quote' => 'last', 'body' => 'x'],
+            "'quote' must be one of: none, full",
+        ];
+        yield 'max_quote_chars below 1' => [
+            ['in_reply_to_uid' => 7, 'quote' => 'full', 'max_quote_chars' => 0, 'body' => 'x'],
+            "'max_quote_chars'",
+        ];
         yield 'bcc is not supported' => [
             ['to' => ['a@example.com'], 'bcc' => ['b@example.com'], 'body' => 'x'],
             'Unknown argument: bcc',
@@ -249,10 +383,18 @@ final class SaveDraftToolTest extends TestCase
             'subject' => '件名',
             'body' => '秘密の本文',
             'in_reply_to_uid' => 7,
+            'quote' => 'full',
         ]);
 
         self::assertSame(
-            ['to' => ['a@example.com'], 'cc' => [], 'subject' => '件名', 'body_chars' => 5, 'in_reply_to_uid' => 7],
+            [
+                'to' => ['a@example.com'],
+                'cc' => [],
+                'subject' => '件名',
+                'body_chars' => 5,
+                'in_reply_to_uid' => 7,
+                'quote' => 'full',
+            ],
             $audit,
         );
         self::assertStringNotContainsString('秘密', serialize($audit));
@@ -276,6 +418,18 @@ final class SaveDraftToolTest extends TestCase
             $policy ?? new MailPolicy(),
             new DateTimeZone('Asia/Tokyo'),
         );
+    }
+
+    /**
+     * The decoded text/plain body of the last appended draft.
+     */
+    private function appendedBody(): string
+    {
+        $appended = end($this->mailbox->appended);
+        self::assertIsArray($appended, 'a draft was saved');
+        $message = $appended['message'];
+
+        return quoted_printable_decode(explode("\r\n\r\n", $message, 2)[1]);
     }
 
     /**

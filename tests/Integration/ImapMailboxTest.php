@@ -12,11 +12,13 @@ use Cartwright\ImapMcp\Mail\MailException;
 use Cartwright\ImapMcp\Mail\MessageDetail;
 use Cartwright\ImapMcp\Mail\MessageSummary;
 use Cartwright\ImapMcp\Mail\Mime\BodyPart;
+use Cartwright\ImapMcp\Mail\Mime\ReplyQuote;
 use Cartwright\ImapMcp\Mail\SearchCriteria;
 use Cartwright\ImapMcp\Policy\MailPolicy;
 use Cartwright\ImapMcp\Tools\SaveDraftTool;
 use DateTimeZone;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Webklex\PHPIMAP\Config as WebklexConfig;
 use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
@@ -31,6 +33,7 @@ use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 #[CoversClass(ResponseParser::class)]
 #[CoversClass(BodyPart::class)]
 #[CoversClass(SaveDraftTool::class)]
+#[CoversClass(ReplyQuote::class)]
 final class ImapMailboxTest extends TestCase
 {
     private const FIXTURES = ['iso-2022-jp', 'shift_jis', 'html-only', 'attachment', 'euc-jp', 'reply'];
@@ -227,19 +230,7 @@ final class ImapMailboxTest extends TestCase
      */
     public function testReplyDraftIsSavedThreadedAndReadsBack(): void
     {
-        $account = new Account(
-            'default',
-            'test@example.com',
-            'test-password',
-            self::host(),
-            self::port(),
-            'ssl',
-            '山田 太郎',
-            self::$drafts,
-        );
-        $tool = new SaveDraftTool($this->mailbox, $account, new MailPolicy(), new DateTimeZone('Asia/Tokyo'));
-
-        $result = $tool->call([
+        $result = $this->draftTool()->call([
             'in_reply_to_uid' => self::$uids['iso-2022-jp'],
             'in_reply_to_folder' => self::$folder,
             'body' => "佐藤様\n\n火曜日の14時でいかがでしょうか。①\n\n山田",
@@ -261,6 +252,69 @@ final class ImapMailboxTest extends TestCase
         self::assertSame($result->structured['message_id'], $draft->messageId);
         self::assertSame("佐藤様\n\n火曜日の14時でいかがでしょうか。①\n\n山田", $draft->body);
         self::assertTrue($draft->seen, 'saved with \Seen so it does not show as unread');
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function quotedFixtures(): iterable
+    {
+        yield 'ISO-2022-JP' => ['iso-2022-jp'];
+        yield 'Shift_JIS' => ['shift_jis'];
+        yield 'HTML only' => ['html-only'];
+    }
+
+    /**
+     * v0.2 acceptance (SPEC.md 11): quote "full" puts the original text below the reply, without mojibake.
+     */
+    #[DataProvider('quotedFixtures')]
+    public function testReplyDraftQuotesTheOriginal(string $fixture): void
+    {
+        $original = $this->message($fixture);
+        $result = $this->draftTool()->call([
+            'in_reply_to_uid' => self::$uids[$fixture],
+            'in_reply_to_folder' => self::$folder,
+            'quote' => 'full',
+            'body' => '承知しました。',
+        ]);
+
+        self::assertFalse($result->isError, $result->text);
+        self::assertNotNull($result->structured);
+        self::assertTrue($result->structured['quoted']);
+        self::assertFalse($result->structured['quote_truncated']);
+        $uid = $result->structured['uid'];
+        self::assertIsInt($uid);
+        $draft = $this->mailbox->message(self::$drafts, $uid, 20000, false, null);
+        self::assertNotNull($draft);
+
+        $expected = "承知しました。\n\n"
+            . ReplyQuote::header($original->date, $original->from, new DateTimeZone('Asia/Tokyo')) . "\n\n"
+            . implode("\n", array_map(
+                static fn (string $line): string => $line === '' ? '>' : '> ' . $line,
+                explode("\n", rtrim($original->body)),
+            ));
+        self::assertSame($expected, rtrim($draft->body));
+        self::assertStringContainsString(' ' . $original->from[0]->toString() . ":\n\n> ", $draft->body);
+    }
+
+    public function testIso2022JpQuoteReadsBackLineByLine(): void
+    {
+        $result = $this->draftTool()->call([
+            'in_reply_to_uid' => self::$uids['iso-2022-jp'],
+            'in_reply_to_folder' => self::$folder,
+            'quote' => 'full',
+            'body' => '承知しました。',
+        ]);
+        self::assertNotNull($result->structured);
+        $uid = $result->structured['uid'];
+        self::assertIsInt($uid);
+        $draft = $this->mailbox->message(self::$drafts, $uid, 20000, false, null);
+        self::assertNotNull($draft);
+
+        self::assertStringEndsWith(
+            ":\n\n> 山田様\n>\n> いつもお世話になっております。\n> 来週の打ち合わせの件でご連絡しました。\n>\n> 佐藤",
+            rtrim($draft->body),
+        );
     }
 
     public function testUnknownUidIsNull(): void
@@ -316,6 +370,22 @@ final class ImapMailboxTest extends TestCase
         } finally {
             ini_set('error_log', (string) $logged);
         }
+    }
+
+    private function draftTool(): SaveDraftTool
+    {
+        $account = new Account(
+            'default',
+            'test@example.com',
+            'test-password',
+            self::host(),
+            self::port(),
+            'ssl',
+            '山田 太郎',
+            self::$drafts,
+        );
+
+        return new SaveDraftTool($this->mailbox, $account, new MailPolicy(), new DateTimeZone('Asia/Tokyo'));
     }
 
     private function message(string $fixture): MessageDetail

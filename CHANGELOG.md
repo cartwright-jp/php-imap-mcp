@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `save_draft` can quote the original email below a reply: `quote: "full"` (the default `none` keeps the 0.1 behaviour). The server copies the original text with `> ` on each line under a Gmail-style Japanese header line (`2026年11月19日(木) 10:51 Name <address>:`), so the AI never rewrites it. `max_quote_chars` limits the quote (default 20000, at most `policy.body_max_chars`); a cut quote ends with `（以下省略）`. The response gains `quoted`, `quote` and `quote_truncated`; the audit log records only the method and the number of quoted characters.
+
 ## [0.1.0] - 2026-11-19
 
 First public release.

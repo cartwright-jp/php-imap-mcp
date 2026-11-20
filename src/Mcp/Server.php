@@ -353,7 +353,7 @@ final class Server
             error_log(sprintf('php-imap-mcp: tool %s failed: %s', $name, $e::class));
             throw new JsonRpcError(ErrorCode::INTERNAL_ERROR, 'Internal error', 500);
         }
-        $record($result->isError ? 'tool_error' : 'ok', $summary);
+        $record($result->isError ? 'tool_error' : 'ok', array_merge($summary, $result->audit));
 
         return $result->toArray();
     }
